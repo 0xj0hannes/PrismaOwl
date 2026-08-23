@@ -31,6 +31,16 @@ This tool takes a complementary, zero-shot approach: it sends each record to an 
 - Python 3.8+
 - [Google AI Studio API Key](https://aistudio.google.com/)
 
+**Option A — Google AI Studio (recommended, no credit card required):**
+Sign in to [Google AI Studio](https://aistudio.google.com/) with a Google account and click **Get API key** → **Create API key**. As a new user, AI Studio automatically provisions a default Google Cloud project for you, and the key gets free-tier access immediately — no billing account needed.
+
+**Option B — Google Cloud Console (if you already manage a GCP project):**
+Open [Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials), enable the **Generative Language API** on your project, then create an API key there. This still uses the same free-tier Gemini Developer API — don't confuse it with **Vertex AI**, which is Google Cloud's separate enterprise offering and is billed, not free.
+
+> **Can't create a key?** If Google AI Studio refuses to generate an API key (e.g. it appears to require a paid plan), this is usually caused by an unverified Google account age, not billing. Verify your age on your [Google Account](https://myaccount.google.com/) (a government ID may be requested) and retry — see [discussion #5](https://github.com/0xj0hannes/PRISMA-LLM-Assisted-Screening-System/discussions/5).
+
+> **Note on key types:** Keys created in AI Studio today are issued as the newer *auth key* type, so a fresh key already meets current requirements. If you are reusing an older *Standard* key, migrate it — [Google's docs](https://ai.google.dev/gemini-api/docs/api-key) state the Gemini API will reject Standard keys from September 2026, and unrestricted keys left dormant for an extended period are blocked (shown with a **Blocked** tag in AI Studio). If screening suddenly fails on a key that used to work, check this first.
+
 ### 2. Installation
 ```bash
 git clone <repository-url>
