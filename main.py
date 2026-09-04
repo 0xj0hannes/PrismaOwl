@@ -5,7 +5,7 @@ import sys
 from src.config import load_config
 
 def main():
-    parser = argparse.ArgumentParser(description="PRISMA LLM-Assisted Screening System")
+    parser = argparse.ArgumentParser(description="PrismaOwl: LLM-assisted PRISMA title/abstract screening")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Ingestion command

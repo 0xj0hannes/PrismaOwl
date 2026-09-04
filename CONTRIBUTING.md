@@ -1,12 +1,12 @@
 # Contributing
 
-Thanks for your interest in improving the PRISMA LLM-Assisted Screening System!
+Thanks for your interest in improving PrismaOwl!
 Contributions of all kinds are welcome: bug reports, feature requests,
 documentation improvements, and code.
 
 ## Reporting bugs and requesting features
 
-Please use the [GitHub issue tracker](https://github.com/0xj0hannes/PRISMA-LLM-Assisted-Screening-System/issues).
+Please use the [GitHub issue tracker](https://github.com/0xj0hannes/PrismaOwl/issues).
 When reporting a bug, include:
 
 - what you did (command or steps),
@@ -20,8 +20,8 @@ the contents of `logs/screening.log` (with any sensitive data removed).
 ## Development setup
 
 ```bash
-git clone https://github.com/0xj0hannes/PRISMA-LLM-Assisted-Screening-System.git
-cd PRISMA-LLM-Assisted-Screening-System
+git clone https://github.com/0xj0hannes/PrismaOwl.git
+cd PrismaOwl
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 ```
@@ -54,5 +54,5 @@ By participating in this project you agree to abide by the
 ## Getting help
 
 If you have a usage question rather than a bug report, please open a
-[GitHub issue](https://github.com/0xj0hannes/PRISMA-LLM-Assisted-Screening-System/issues)
+[GitHub issue](https://github.com/0xj0hannes/PrismaOwl/issues)
 with the `question` label.

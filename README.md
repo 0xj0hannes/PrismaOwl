@@ -1,6 +1,6 @@
-# 🛡️ PRISMA LLM-Assisted Screening System
+# 🦉 PrismaOwl
 
-A high-precision screening assistant designed for **Systematic Literature Reviews**. This system leverages the Google Gemini API to accelerate the title/abstract screening phase of the PRISMA 2020 reporting guideline [[1]](#references), specifically optimized for research on **cybercriminal behavior** and the **human element** in cybersecurity.
+**PrismaOwl** is a high-precision, LLM-assisted screening assistant designed for **Systematic Literature Reviews**. This system leverages the Google Gemini API to accelerate the title/abstract screening phase of the PRISMA 2020 reporting guideline [[1]](#references), specifically optimized for research on **cybercriminal behavior** and the **human element** in cybersecurity.
 
 The tool implements the *screening* stage described in PRISMA 2020 [[1]](#references); it does **not** replace any other PRISMA stage (protocol registration, eligibility assessment of full texts, risk-of-bias appraisal, synthesis, or reporting). All AI-suggested decisions are user-configurable inclusion criteria, fully logged for audit, and surfaced for human adjudication in the "Maybe" review queue.
 
@@ -37,14 +37,14 @@ Sign in to [Google AI Studio](https://aistudio.google.com/) with a Google accoun
 **Option B — Google Cloud Console (if you already manage a GCP project):**
 Open [Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials), enable the **Generative Language API** on your project, then create an API key there. This still uses the same free-tier Gemini Developer API — don't confuse it with **Vertex AI**, which is Google Cloud's separate enterprise offering and is billed, not free.
 
-> **Can't create a key?** If Google AI Studio refuses to generate an API key (e.g. it appears to require a paid plan), this is usually caused by an unverified Google account age, not billing. Verify your age on your [Google Account](https://myaccount.google.com/) (a government ID may be requested) and retry — see [discussion #5](https://github.com/0xj0hannes/PRISMA-LLM-Assisted-Screening-System/discussions/5).
+> **Can't create a key?** If Google AI Studio refuses to generate an API key (e.g. it appears to require a paid plan), this is usually caused by an unverified Google account age, not billing. Verify your age on your [Google Account](https://myaccount.google.com/) (a government ID may be requested) and retry — see [discussion #5](https://github.com/0xj0hannes/PrismaOwl/discussions/5).
 
 > **Note on key types:** Keys created in AI Studio today are issued as the newer *auth key* type, so a fresh key already meets current requirements. If you are reusing an older *Standard* key, migrate it — [Google's docs](https://ai.google.dev/gemini-api/docs/api-key) state the Gemini API will reject Standard keys from September 2026, and unrestricted keys left dormant for an extended period are blocked (shown with a **Blocked** tag in AI Studio). If screening suddenly fails on a key that used to work, check this first.
 
 ### 2. Installation
 ```bash
 git clone <repository-url>
-cd PRISMA-LLM-Assisted-Screening-System
+cd PrismaOwl
 pip install -r requirements.txt
 ```
 
@@ -65,7 +65,7 @@ MAX_RETRIES=3
 
 ## ⚙️ Configuring Inclusion Criteria
 
-The PRISMA Screening System is completely dynamic and allows you to configure arbitrary inclusion criteria limits for different projects!
+PrismaOwl is completely dynamic and allows you to configure arbitrary inclusion criteria limits for different projects!
 
 To modify the criteria used by the AI to evaluate your literature, edit the `criteria.json` file located in the root directory. You can add or rename custom criteria endpoints simply by editing the JSON structure. 
 
@@ -163,7 +163,7 @@ Tests cover ingestion (BibTeX parsing), deduplication, dynamic prompt generation
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and the pull-request workflow, and note our [Code of Conduct](CODE_OF_CONDUCT.md). Bug reports and feature requests go to the [issue tracker](https://github.com/0xj0hannes/PRISMA-LLM-Assisted-Screening-System/issues).
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and the pull-request workflow, and note our [Code of Conduct](CODE_OF_CONDUCT.md). Bug reports and feature requests go to the [issue tracker](https://github.com/0xj0hannes/PrismaOwl/issues).
 
 ---
 

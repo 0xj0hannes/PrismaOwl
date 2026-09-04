@@ -14,7 +14,7 @@ from src.reporting import generate_report
 from src.db import init_db, save_record, save_screening_result, get_all_records, get_all_screening_results, get_unique_records
 from src.config import load_config
 
-app = FastAPI(title="PRISMA Web")
+app = FastAPI(title="PrismaOwl")
 
 # Initialize database
 init_db()

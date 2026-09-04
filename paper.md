@@ -1,5 +1,5 @@
 ---
-title: 'PRISMA LLM-Assisted Screening System: a human-in-the-loop tool for title and abstract screening in systematic reviews'
+title: 'PrismaOwl: a human-in-the-loop tool for LLM-assisted title and abstract screening in systematic reviews'
 tags:
   - Python
   - systematic review
@@ -28,8 +28,8 @@ bibliography: paper.bib
 
 Systematic literature reviews are a cornerstone of evidence-based research, but
 the title and abstract screening phase is laborious: reviewers must read and
-judge thousands of records against predefined inclusion criteria. The
-**PRISMA LLM-Assisted Screening System** is an open-source Python tool that
+judge thousands of records against predefined inclusion criteria.
+**PrismaOwl** is an open-source Python tool that
 accelerates this single phase of the PRISMA 2020 reporting workflow
 [@page2021prisma] by using a large language model (LLM) to produce a structured,
 per-criterion, evidence-backed recommendation for each record, while keeping a
@@ -69,8 +69,8 @@ justification that a reviewer can inspect and contest.
 
 Recent work has shown that instruction-following LLMs can screen records
 zero-shot against natural-language inclusion criteria with promising agreement
-against human reviewers [@syriani2023llmscreening]. The PRISMA LLM-Assisted
-Screening System operationalizes this capability in a way that is purpose-built
+against human reviewers [@syriani2023llmscreening]. PrismaOwl
+operationalizes this capability in a way that is purpose-built
 for transparent, reproducible review practice. Its distinguishing features are:
 
 - **Per-criterion, evidence-backed output.** Rather than a single relevance
