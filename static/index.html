@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PrismaOwl</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=12">
+    <link rel="stylesheet" href="/static/css/style.css?v=13">
     <script>
         // Apply the saved theme before first paint to avoid a flash of the wrong theme.
         (function () {
@@ -88,7 +88,8 @@
                     </details>
                     <div class="btn-row mt-10">
                         <button class="btn-primary" id="btn-strategy-generate">✨ Generate with AI</button>
-                        <button class="btn-outline" id="btn-strategy-refine">↻ Refine current with AI</button>
+                        <button class="btn-link hidden" id="btn-strategy-restart" type="button"
+                            title="Discard the current concepts and queries and generate again from the research question only">Start over from the research question</button>
                         <span class="status-inline" id="strategy-ai-status"></span>
                     </div>
                 </div>
@@ -606,7 +607,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=20"></script>
+    <script src="/static/js/app.js?v=21"></script>
 </body>
 
 </html>

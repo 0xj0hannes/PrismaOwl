@@ -283,6 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
             databases = data.databases || {};
             savedStrategy = data.strategy;
             renderStrategy(savedStrategy);
+            updateStrategyAIButton();
             if (savedStrategy && savedStrategy.research_question && !$('criteria-topic').value) {
                 $('criteria-topic').placeholder = savedStrategy.research_question;
             }
@@ -291,11 +292,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
     $('btn-add-concept').addEventListener('click', () => renderConcept());
 
+    // One AI button: it refines the current strategy (concepts, queries,
+    // scope notes + the feedback text) when one exists, and generates from
+    // the research question alone when the tab is empty. "Start over" forces
+    // a fresh generation.
+    function hasStrategy() {
+        const s = collectStrategy();
+        return s.concepts.some(c => c.terms.length) || Object.values(s.queries).some(q => q);
+    }
+    function updateStrategyAIButton() {
+        const refine = hasStrategy();
+        const btn = $('btn-strategy-generate');
+        btn.textContent = refine ? '↻ Refine with AI' : '✨ Generate with AI';
+        btn.title = refine
+            ? 'Send the current concepts, queries, scope notes and your feedback to the LLM and improve them'
+            : 'Ask the LLM to draft concepts and database queries from the research question';
+        $('btn-strategy-restart').classList.toggle('hidden', !refine);
+    }
+
     async function runStrategyAI(refine) {
         const status = $('strategy-ai-status');
         const topic = $('strategy-topic').value.trim();
         if (!topic && !(refine && savedStrategy)) { setStatus(status, 'Enter a research question first.', 'error'); return; }
-        const btns = [$('btn-strategy-generate'), $('btn-strategy-refine')];
+        const btns = [$('btn-strategy-generate'), $('btn-strategy-restart')];
         btns.forEach(b => b.disabled = true);
         setStatus(status, refine ? 'Refining with the LLM… (can take a minute)' : 'Asking the LLM… (can take a minute)');
         try {
@@ -304,12 +323,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await postJSON('/api/search-strategy/generate', body);
             renderStrategy(data.strategy);
             await saveStrategyNow();
-            setStatus(status, 'Draft saved. Review and edit; changes save automatically.', 'success');
+            setStatus(status, refine ? 'Refined and saved. Edit freely; changes save automatically.'
+                                     : 'Draft saved. Review and edit; changes save automatically.', 'success');
         } catch (e) {
             setStatus(status, 'Error: ' + e.message, 'error');
-        } finally { btns.forEach(b => b.disabled = false); }
+        } finally { btns.forEach(b => b.disabled = false); updateStrategyAIButton(); }
     }
-    $('btn-strategy-generate').addEventListener('click', () => runStrategyAI(false));
+    $('btn-strategy-generate').addEventListener('click', () => runStrategyAI(hasStrategy()));
+    $('btn-strategy-restart').addEventListener('click', () => {
+        if (!confirm('Discard the current concepts, scope notes and queries and generate a new strategy from the research question only?')) return;
+        runStrategyAI(false);
+    });
+    $('strategy').addEventListener('input', updateStrategyAIButton);
 
     // Deterministic rebuild: concepts -> queries, no LLM. Replaces the query
     // boxes (unsaved until Save).
@@ -346,7 +371,6 @@ document.addEventListener('DOMContentLoaded', () => {
             setStatus(status, 'Error: ' + e.message, 'error');
         } finally { btn.disabled = false; }
     });
-    $('btn-strategy-refine').addEventListener('click', () => runStrategyAI(true));
 
     // Auto-save: the strategy is persisted a moment after the last edit (and
     // immediately after Generate / Refine / Rebuild). No Save button.
@@ -891,7 +915,7 @@ document.addEventListener('DOMContentLoaded', () => {
 <p>This tab turns your research question into <strong>concept blocks</strong> (groups of synonyms combined with OR) and one ready-to-paste <strong>Boolean query per database</strong>, each in that database's own syntax. The LLM drafts it; your edits are saved automatically to <code>search_strategy.json</code>, which the CLI reads too.</p>
 <p>A systematic review must report the <em>full</em> search strategy for every database so that others can repeat the search. Keep the saved file, and note the date you ran each query.</p>
 <ul>
-<li>Edit the concept blocks yourself and press <em>Rebuild from concepts</em> to regenerate every database query without an LLM call; use <em>Refine current with AI</em> when you want the model to propose new synonyms.</li>
+<li>Edit the concept blocks yourself and press <em>Rebuild from concepts</em> to regenerate every database query without an LLM call; press <em>Refine with AI</em> (the same button, once a strategy exists) when you want the model to propose new synonyms or apply your feedback. <em>Start over</em> discards everything and generates again from the research question only.</li>
 <li>Write date limits in the <em>Scope notes</em> ("2010 onwards", "2015-2024"): they are turned into a publication-year filter in the queries and in the API harvests, and they are exactly what item 7 asks you to report as limits.</li>
 <li>Peer review of the search by a librarian or information specialist is recommended before you run it for real.</li>
 </ul>`,

@@ -598,3 +598,6 @@ details[open] > .summary-row h3::before { transform: rotate(90deg); }
 .pager-btn.current { background: var(--accent-blue); color: #fff; cursor: default; }
 .pager-btn:disabled:not(.current) { color: var(--text-secondary); opacity: 0.5; cursor: default; }
 .pager-gap { color: var(--text-secondary); padding: 0 2px; }
+
+.btn-link { background: none; border: none; padding: 6px 4px; color: var(--text-secondary); font: 600 0.85rem 'Inter', sans-serif; text-decoration: underline; cursor: pointer; }
+.btn-link:hover { color: var(--accent-red); }
