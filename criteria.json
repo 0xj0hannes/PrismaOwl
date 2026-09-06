@@ -1,26 +1,14 @@
 {
-  "IC1": {
-    "name": "Cybercrime Offender Focus",
-    "definition": "The study investigates individuals who commit cybercriminal acts, treating offenders as the primary subject rather than only technical threats.",
-    "signals": "cybercriminal, cyber offender, hacker, malicious insider, online fraudster, cybercrime perpetrator, dark web vendor",
-    "negative_indicators": "cybersecurity defense, network intrusion, malware detection, cyber victimization"
-  },
   "IC2": {
-    "name": "Profiling Activity",
-    "definition": "The study aims to infer, classify, or predict offender characteristics (e.g., demographics, personality, location, technical skill) from digital evidence, online behavior, or textual data.",
-    "signals": "profiling, behavioral profiling, psychological profiling, attribution, stylometry, authorship analysis, personality prediction, classification of offenders",
-    "negative_indicators": "associating malware to a specific attacker group through threat intelligence, IP tracking, generic anomaly detection"
+    "name": "Cybercriminal Behavior",
+    "definition": "The study pertains to understanding, characterizing, or profiling cybercriminal behavior, motives, or traits.",
+    "signals": "Motives (financial, ideology), Traits (narcissism, impulsivity), Reasoning/Decision-making, Behavioral patterns (escalation).",
+    "negative_indicators": "Purely technical system descriptions, Malware analysis without offender cognition."
   },
   "IC3": {
-    "name": "Human Factors Emphasis",
-    "definition": "The study explicitly incorporates psychological, sociological, cognitive, or motivational concepts to explain or model offender behavior.",
-    "signals": "motivation, personality traits, psychopathy, cognitive bias, human factors, social engineering, cyberpsychology, behavioral theory, self-control, moral disengagement",
-    "negative_indicators": "technical skill measurement, cryptographic expertise, code obfuscation techniques"
-  },
-  "IC4": {
-    "name": "Empirical or Methodological Contribution",
-    "definition": "The study provides original empirical data (e.g., experiments, surveys, case series, datasets) or formulates/validates a novel method, framework, or algorithm for profiling, or systematically reviews existing evidence.",
-    "signals": "empirical, case study, survey, interviews, experiment, dataset, machine learning model, predictive model, framework, systematic review, meta-analysis",
-    "negative_indicators": "editorial, opinion, tutorial, purely descriptive technical report without a method or systematic data collection"
+    "name": "Human Element",
+    "definition": "The study focuses on the behavioral, psychological, or sociological aspects of perpetrators.",
+    "signals": "Psychological constructs (Dark Triad, empathy), Sociological framing (subcultures, social learning), Human decision-making.",
+    "negative_indicators": "Victim-only impact studies, Defensive frameworks without attacker cognition."
   }
 }
