@@ -114,7 +114,7 @@ PrismaOwl is completely dynamic: the inclusion criteria are the only place your 
 
 Three ways to define them:
 
-1. **Web UI → Criteria tab**: let the LLM draft a set from your research question (or refine the current one with feedback), edit any field, and save.
+1. **Web UI → Criteria tab**: let the LLM draft a set from your research question (or refine the current one with feedback) and edit any field; every change is saved automatically to `criteria.json`.
 2. **CLI**: `python3 main.py criteria --topic "…" [--feedback "…"] [--count 3]` writes `criteria.json` after showing you the proposal.
 3. **By hand**: edit `criteria.json` in the project root.
 
@@ -139,7 +139,7 @@ Then navigate to `http://127.0.0.1:8000` in your browser.
 
 - **Search Strategy**: Enter your research question, click *Generate with AI*, and get concept blocks plus one query per database. Edit the concept blocks and press *Rebuild from concepts* to regenerate every database query deterministically (AND between concepts, OR inside, each database's own syntax) without another LLM call; *Refine current with AI* is for when you want new synonyms. Every edit is saved automatically to `search_strategy.json` (the CLI reads the same file), so there is no Save button. A year range in the scope notes ("2010 onwards", "2015-2024") is written into the Scopus, Web of Science and arXiv queries and applied as an API filter when harvesting OpenAlex, Semantic Scholar, Crossref and IEEE. Press *Run harvest* on any database with an open API: the hits are stored straight into the corpus (deduplicated against what is already there) as a **harvest run** that remembers the query, database, date and year range, and can be downloaded as `.bib` at any time. ACM DL and Web of Science show the query to paste into their advanced search; upload their exports on the Ingestion tab.
 - **Ingestion**: A dashboard shows records identified, unique records to screen, duplicates removed and the per-source breakdown, the list of harvest runs with what each contributed, and the list of duplicate records with the reason (DOI match, or normalised title + year + first author) and the record that was kept. Drag-and-drop `.bib` exports (Scopus, Web of Science, ACM…) to add them. Duplicates are stored but never screened, so the PRISMA flow numbers come straight from the corpus.
-- **Criteria**: Draft or refine inclusion criteria with the LLM, edit them in place, save to `criteria.json`. A *Reset screening results* button is there for when the criteria change mid-project.
+- **Criteria**: Draft or refine inclusion criteria with the LLM and edit them in place; changes save automatically to `criteria.json` (saving waits while a screening batch runs). A *Reset screening results* button is there for when the criteria change mid-project.
 - **Screening**: Start the background AI task. Each result records which upstream model the router actually used.
 - **Review**: Adjudicate uncertain "Maybe" cases with rapid-action buttons.
 - **Reports**: Download the CSV PRISMA report.

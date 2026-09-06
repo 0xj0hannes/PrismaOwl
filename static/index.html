@@ -236,15 +236,11 @@
 
                 <div class="card glass wide">
                     <div class="row-between">
-                        <h3>Editor <span class="badge badge-draft hidden" id="criteria-draft-badge">unsaved draft</span></h3>
+                        <h3>Editor</h3>
                         <button class="btn-outline btn-sm" id="btn-add-criterion">+ Add criterion</button>
                     </div>
                     <div id="criteria-editor" class="mt-10"></div>
-                    <div class="btn-row mt-20">
-                        <button class="btn-success" id="btn-criteria-save">💾 Save criteria</button>
-                        <button class="btn-outline" id="btn-criteria-revert">Revert to saved</button>
-                        <span class="status-inline" id="criteria-save-status"></span>
-                    </div>
+                    <p class="status-inline mt-20" id="criteria-save-status" title="Every change is saved automatically to criteria.json, which the CLI reads too. Saving waits while a screening batch is running."></p>
                     <div class="warn-box mt-20">
                         <p><strong>Changing criteria after screening?</strong> Existing results were judged against the
                             old criteria. Reset them so the corpus is re-screened on the next run.</p>
@@ -602,7 +598,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=16"></script>
+    <script src="/static/js/app.js?v=17"></script>
 </body>
 
 </html>

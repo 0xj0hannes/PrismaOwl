@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tabId === 'ingest') loadIngestStats();
         if (tabId === 'review') loadReviews();
         if (tabId === 'strategy') { loadHarvestSources().then(() => { loadHarvestRuns(); pollHarvestJobs(); }); }
-        if (tabId === 'criteria') { if (!criteriaDirty) loadCriteriaEditor(); }
+        if (tabId === 'criteria') { if (!criteriaPending) loadCriteriaEditor(); }
         if (tabId === 'chat') loadChatScopes();
     }
     navLinks.forEach(link => link.addEventListener('click', () => showTab(link.getAttribute('data-tab'))));
@@ -438,12 +438,47 @@ document.addEventListener('DOMContentLoaded', () => {
     // ------------------------------------------------------------------
     const criteriaEditor = $('criteria-editor');
     const criterionTemplate = $('criterion-template');
-    let criteriaDirty = false;
 
-    function markCriteriaDirty(dirty) {
-        criteriaDirty = dirty;
-        $('criteria-draft-badge').classList.toggle('hidden', !dirty);
+    // Auto-save: criteria.json is written about a second after the last edit
+    // (immediately after an LLM draft). A save the server refuses - invalid
+    // key, missing name/definition, or screening running (409) - keeps the
+    // editor as it is, shows why, and is retried on the next edit or once
+    // screening stops.
+    let criteriaSaveTimer = null;
+    let criteriaSaving = null;
+    let criteriaSaveAgain = false;
+    let criteriaPending = false;     // edits not yet accepted by the server
+
+    async function saveCriteriaNow() {
+        if (criteriaSaving) { criteriaSaveAgain = true; return criteriaSaving; }
+        clearTimeout(criteriaSaveTimer);
+        const status = $('criteria-save-status');
+        setStatus(status, 'Saving…');
+        criteriaSaving = (async () => {
+            try {
+                await postJSON('/api/criteria', collectCriteria(), 'PUT');
+                criteriaPending = false;
+                const t = new Date();
+                setStatus(status, `Saved ${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}:${String(t.getSeconds()).padStart(2, '0')} - the next screened record uses these criteria.`, 'success');
+                loadCriteria();
+            } catch (e) {
+                criteriaPending = true;
+                const waiting = /stop screening/i.test(e.message);
+                setStatus(status, (waiting ? 'Not saved yet: screening is running, will save when it stops. ' : 'Not saved: ') + e.message, 'error');
+            } finally {
+                criteriaSaving = null;
+                if (criteriaSaveAgain) { criteriaSaveAgain = false; saveCriteriaNow(); }
+            }
+        })();
+        return criteriaSaving;
     }
+    function markCriteriaDirty() {
+        criteriaPending = true;
+        clearTimeout(criteriaSaveTimer);
+        setStatus($('criteria-save-status'), 'Editing…');
+        criteriaSaveTimer = setTimeout(saveCriteriaNow, 1000);
+    }
+    window.addEventListener('beforeunload', () => { if (criteriaSaveTimer) { clearTimeout(criteriaSaveTimer); saveCriteriaNow(); } });
 
     function renderCriterion(key = '', c = {}) {
         const clone = criterionTemplate.content.cloneNode(true);
@@ -453,8 +488,8 @@ document.addEventListener('DOMContentLoaded', () => {
         card.querySelector('.crit-definition').value = c.definition || '';
         card.querySelector('.crit-signals').value = c.signals || '';
         card.querySelector('.crit-negative').value = c.negative_indicators || '';
-        card.querySelector('.crit-remove').addEventListener('click', () => { card.remove(); markCriteriaDirty(true); });
-        card.querySelectorAll('input, textarea').forEach(el => el.addEventListener('input', () => markCriteriaDirty(true)));
+        card.querySelector('.crit-remove').addEventListener('click', () => { card.remove(); markCriteriaDirty(); });
+        card.querySelectorAll('input, textarea').forEach(el => el.addEventListener('input', () => markCriteriaDirty()));
         criteriaEditor.appendChild(clone);
     }
 
@@ -482,14 +517,15 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const data = await api('/api/criteria');
             renderCriteriaEditor(data);
-            markCriteriaDirty(false);
+            criteriaPending = false;
         } catch (e) { console.error(e); }
     }
 
     $('btn-add-criterion').addEventListener('click', () => {
         const n = criteriaEditor.querySelectorAll('.criterion-card').length + 1;
         renderCriterion(`IC${n}`, {});
-        markCriteriaDirty(true);
+        // Saved once the new criterion has a name and a definition.
+        setStatus($('criteria-save-status'), 'New criterion: fill in a name and a definition to save it.');
     });
 
     async function runCriteriaAI(refine) {
@@ -506,24 +542,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (refine) body.current = collectCriteria();
             const data = await postJSON('/api/criteria/generate', body);
             renderCriteriaEditor(data.criteria);
-            markCriteriaDirty(true);
-            setStatus(status, 'Draft ready. Edit, then Save.', 'success');
+            await saveCriteriaNow();
+            setStatus(status, criteriaPending ? 'Draft ready but not saved yet (see below).' : 'Draft saved. Edit freely; changes save automatically.', criteriaPending ? 'error' : 'success');
         } catch (e) { setStatus(status, 'Error: ' + e.message, 'error'); }
         finally { btns.forEach(b => b.disabled = false); }
     }
     $('btn-criteria-draft').addEventListener('click', () => runCriteriaAI(false));
     $('btn-criteria-refine').addEventListener('click', () => runCriteriaAI(true));
 
-    $('btn-criteria-save').addEventListener('click', async () => {
-        const status = $('criteria-save-status');
-        try {
-            await postJSON('/api/criteria', collectCriteria(), 'PUT');
-            markCriteriaDirty(false);
-            setStatus(status, 'Saved to criteria.json', 'success');
-            loadCriteria();
-        } catch (e) { setStatus(status, 'Error: ' + e.message, 'error'); }
-    });
-    $('btn-criteria-revert').addEventListener('click', () => { loadCriteriaEditor(); setStatus($('criteria-save-status'), ''); });
 
     $('btn-reset-results').addEventListener('click', async () => {
         if (!confirm('Delete ALL screening results (including human review decisions)? Records are kept.')) return;
@@ -569,6 +595,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnStartScreen.disabled = !data.model_ok;
             screenProgress.classList.add('hidden');
             if (screenInterval) { clearInterval(screenInterval); screenInterval = null; }
+            if (criteriaPending && !criteriaSaving && !criteriaSaveTimer) saveCriteriaNow();
         }
     }
 
