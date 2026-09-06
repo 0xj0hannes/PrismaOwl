@@ -90,6 +90,26 @@ class LLMError(RuntimeError):
         code = f"[{self.code}] " if self.code else ""
         return f"{prefix}{code}{base}"
 
+    @property
+    def hint(self) -> str:
+        """Actionable advice for the user, or "" (kept out of ``__str__`` so
+        screening notes and logs stay the raw provider message)."""
+        if self.status == 402 or self.code in ("insufficient_quota", "insufficient_user_quota"):
+            return FREE_TIER_HINT
+        return ""
+
+    @property
+    def user_message(self) -> str:
+        return f"{self} {self.hint}".strip()
+
+
+FREE_TIER_HINT = (
+    "Tip: the OrcaRouter account has no credits. To use OrcaRouter for free, open "
+    "Settings and set the default model to orcarouter/free and the screening model to a "
+    "concrete free model such as deepseek/deepseek-v4-flash-free (or add credits at "
+    "https://www.orcarouter.ai/console/billing)."
+)
+
 
 @dataclass
 class LLMResponse:

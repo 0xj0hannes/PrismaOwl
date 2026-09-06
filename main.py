@@ -222,7 +222,7 @@ def main():
         try:
             strategy = generate_strategy(topic, current=current or None, feedback=args.feedback)
         except (LLMError, ValueError) as e:
-            print(f"Error: {e}")
+            print(f"Error: {getattr(e, 'user_message', e)}")
             sys.exit(1)
         save_search_strategy(strategy, path)
         print(format_strategy(strategy))
@@ -277,7 +277,7 @@ def main():
             proposed = generate_criteria(topic, current=None if args.fresh else (current or None),
                                          feedback=args.feedback, count=args.count)
         except (LLMError, ValueError) as e:
-            print(f"Error: {e}")
+            print(f"Error: {getattr(e, 'user_message', e)}")
             sys.exit(1)
         print(format_criteria(proposed))
         if current and not args.yes:
@@ -309,7 +309,7 @@ def main():
                 out = ask(history, records, results, criteria, scope=args.scope)
             except LLMError as e:
                 history.pop()
-                print(f"Error: {e}")
+                print(f"Error: {e.user_message}")
                 return
             history.append({"role": "assistant", "content": out["reply"]})
             print(f"\n{out['reply']}\n")

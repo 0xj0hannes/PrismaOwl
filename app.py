@@ -74,7 +74,7 @@ async def generate_criteria_endpoint(request: Request):
         proposed = await asyncio.to_thread(
             generate_criteria, topic, current, data.get("feedback", ""), data.get("count"))
     except (LLMError, ValueError) as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=400)
     return {"criteria": proposed}
 
 
@@ -194,7 +194,7 @@ async def settings_models(provider: str = ""):
         ps, client = _client_for(provider)
         models = await asyncio.to_thread(client.list_models)
     except LLMError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"error": e.user_message}, status_code=400)
     ids = sorted({str(m.get("id", "")) for m in models if isinstance(m, dict) and m.get("id")})
     return {"provider": ps["provider"], "label": ps["label"], "models": ids}
 
@@ -208,7 +208,7 @@ async def settings_test(request: Request):
         ps, client = _client_for(provider)
         models = await asyncio.to_thread(client.list_models)
     except LLMError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"error": e.user_message}, status_code=400)
     return {"ok": True, "provider": ps["provider"], "label": ps["label"],
             "base_url": ps["base_url"], "model_count": len(models)}
 
@@ -238,7 +238,7 @@ async def generate_search_strategy(request: Request):
         strategy = await asyncio.to_thread(
             generate_strategy, data.get("topic", ""), data.get("current") or None, data.get("feedback", ""))
     except (LLMError, ValueError) as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=400)
     return {"strategy": strategy}
 
 
@@ -376,7 +376,7 @@ async def chat_endpoint(request: Request):
     try:
         out = await asyncio.to_thread(chat_ask, messages, records, results, criteria, scope)
     except LLMError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"error": e.user_message}, status_code=400)
     return out
 
 from typing import List

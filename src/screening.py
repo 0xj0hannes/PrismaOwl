@@ -209,7 +209,9 @@ MODEL_UNAVAILABLE_HINT = (
 
 BILLING_HINT = (
     "OrcaRouter rejected the request: check ORCA_API_KEY in .env and your credit "
-    "balance at https://www.orcarouter.ai/console/billing."
+    "balance at https://www.orcarouter.ai/console/billing. Without credits, set "
+    "MODEL_NAME=orcarouter/free and MODEL_SCREENING to a concrete free model such as "
+    "deepseek/deepseek-v4-flash-free."
 )
 
 GEMINI_BILLING_HINT = (

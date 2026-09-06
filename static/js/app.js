@@ -793,9 +793,8 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.disabled = true;
         setStatus($('settings-status'), 'Saving…');
         try {
-            const res = await postJSON('/api/settings', collectSettings(), 'PUT');
-            setStatus($('settings-status'), `Saved ${res.written.length} setting(s) to .env.`, 'success');
-            await loadSettings();
+            await postJSON('/api/settings', collectSettings(), 'PUT');
+            closeSettings();
             loadLLMInfo();
             updateScreenStats();
         } catch (e) {
