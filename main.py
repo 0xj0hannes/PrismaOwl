@@ -4,7 +4,13 @@ import os
 import sys
 from src.config import load_config
 
+DEPRECATION_NOTICE = ("[deprecated] The command-line pipeline (main.py) is deprecated and will be removed "
+                      "in a future release. Configuration and every review stage are available in the web "
+                      "interface: python -m uvicorn app:app --host 127.0.0.1 --port 8000")
+
+
 def main():
+    print(DEPRECATION_NOTICE, file=sys.stderr)
     parser = argparse.ArgumentParser(description="PrismaOwl: LLM-assisted PRISMA title/abstract screening")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 

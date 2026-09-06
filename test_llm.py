@@ -13,6 +13,8 @@ import sys
 
 
 def main():
+    print("[deprecated] test_llm.py is deprecated and will be removed in a future release; use "
+          "Settings -> Test connection / Load model list in the web interface instead.", file=sys.stderr)
     argv = sys.argv[1:]
     if "--provider" in argv:
         idx = argv.index("--provider")

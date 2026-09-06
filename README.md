@@ -1,8 +1,10 @@
 # 🦉 PrismaOwl
 
-**PrismaOwl** is a high-precision, LLM-assisted screening assistant designed for **Systematic Literature Reviews**. This system leverages LLMs, either routed through [OrcaRouter](https://www.orcarouter.ai) (an OpenAI-compatible gateway to 100+ models) or called directly on the Google Gemini API, to accelerate the search-strategy design, literature harvesting and title/abstract screening phases of the PRISMA 2020 reporting guideline [[1]](#references). It is **domain-agnostic**: the inclusion criteria are plain-language rules you write (or let the LLM draft) for your own review, so the same tool serves medicine, psychology, education, software engineering, criminology, or any other field.
+**PrismaOwl** is an LLM-assisted screening assistant for **systematic literature reviews**. It covers the *identification* (search strategy, database harvesting, deduplication) and *title/abstract screening* stages of the PRISMA 2020 reporting guideline [[1]](#references), records every decision for the audit trail, and draws the PRISMA flow for you. Everything is configured and operated from a local web interface.
 
-The tool supports the *identification* (search strategy + database harvesting) and *screening* stages described in PRISMA 2020 [[1]](#references), plus an LLM chat over the included records to help with synthesis; it does **not** replace the other PRISMA stages (protocol registration, eligibility assessment of full texts, risk-of-bias appraisal, or reporting). All AI-suggested decisions are user-configurable inclusion criteria, fully logged for audit, and surfaced for human adjudication in the "Maybe" review queue.
+It is **domain-agnostic**: the inclusion criteria are plain-language rules you write (or let the LLM draft) for your own review, so the same tool serves medicine, psychology, education, software engineering, criminology, or any other field. It does **not** replace the other PRISMA stages (protocol registration, full-text eligibility assessment, risk-of-bias appraisal, synthesis): those remain yours.
+
+The LLM is reached either through [OrcaRouter](https://www.orcarouter.ai) (an OpenAI-compatible gateway to 100+ models, with a free routing mode) or directly through the Google Gemini API (free tier). No vendor SDK is involved.
 
 ---
 
@@ -16,40 +18,34 @@ This tool takes a complementary, zero-shot approach: it sends each record to an 
 
 ## ✨ Key Features
 
-- 🔎 **LLM Search-Strategy Builder**: Turn a research question into concept blocks and ready-to-paste boolean queries for Scopus, Web of Science, IEEE Xplore, ACM DL, OpenAlex, Semantic Scholar, arXiv and Crossref — then edit them in the web UI.
-- 🌐 **Automated Harvesting**: Run a query against a database's official API (OpenAlex, Semantic Scholar, arXiv, Crossref without any key; Scopus and IEEE Xplore with a key). Hits go straight into the deduplicated corpus as a stored harvest run (query, database, date, year range), and every run can be exported as a clean `.bib` file.
-- 📋 **LLM Criteria Assistant + Editor**: Draft or refine inclusion criteria from the research question, edit every field in the browser, and save straight to `criteria.json`.
-- 💬 **Ask-the-corpus Chatbot**: An LLM that has read every included record sits beside the review cards; it weighs any record against the criteria on request and answers questions about the corpus, citing record IDs.
-- 🔀 **Model Routing via OrcaRouter, or Gemini directly**: One OrcaRouter key gives you any model (`orcarouter/auto` for adaptive routing, or pin a different model per task: screening, query building, criteria, chat). Prefer Google's free tier? Set `GEMINI_API_KEY` and the same code talks to the Gemini API instead.
-- 🆓 **Runs for free**: OrcaRouter has a **Free** routing mode (`orcarouter/free` plus free `-free` models such as `deepseek/deepseek-v4-flash-free` for screening) that needs no credits, and Gemini's free tier needs no credit card. A one-click *Auto / Free* toggle in Settings switches OrcaRouter between the two.
-- 🖥 **Premium Web Dashboard**: A sleek, dark-mode GUI natively powered by FastAPI for seamless visual ingestion, screening, and human-in-the-loop review.
-- 🔬 **High-Precision AI Screening**: Engineered to favour precision over recall—every criterion needs explicit, quoted evidence from the title or abstract before a record is included.
-- 🧭 **Any discipline**: Nothing about a research field is hard-coded. Criteria, search concepts and the chat all derive from your own research question.
-- 💾 **Hybrid Persistence**: Robust JSON databasing for CLI scripts and heavy-duty global deduplication SQLite persistence (`data/prisma.db`) for web operations.
-- 🤝 **Interactive Human-in-the-loop**: Rapid-fire visual interface for the manual review of ambiguous AI decisions ("Maybe" cases).
-- 🔄 **Stateful Execution**: Automatic background save-states guarantee you will never lose screening work from API limits or closed tabs.
-- 📂 **Bulk BibTeX Uploads**: Visually drag-and-drop massive batches of `.bib` records directly into the unified screening queue with instant duplicate rejection.
+- 🖥 **One web interface for everything**: configuration (providers, keys, models, theme) and every stage of the review live in the browser; nothing to edit by hand.
+- 🔎 **Search-strategy builder**: turn a research question into concept blocks and one ready-to-paste Boolean query per database (Scopus, Web of Science, IEEE Xplore, ACM DL, OpenAlex, Semantic Scholar, arXiv, Crossref). Rebuild the queries from edited concepts without an LLM call; a year range in the scope notes becomes a date filter everywhere.
+- 🌐 **Harvesting into the corpus**: run a query against a database's official API (OpenAlex, Semantic Scholar, arXiv, Crossref without a key; Scopus and IEEE Xplore with a key). Hits are deduplicated and stored as a *harvest run* that remembers the query, database, date and year range, and can be exported as `.bib`.
+- 📥 **Ingestion dashboard**: records identified, duplicates removed (with the reason and the record kept), per-source breakdown, drag-and-drop for BibTeX exports from databases without an API.
+- 📋 **Criteria assistant and editor**: draft or refine inclusion criteria from the research question, edit every field; changes save automatically.
+- 🔬 **Criterion-by-criterion screening**: every record gets a score, quoted evidence and a rationale per criterion plus an Include / Exclude / Maybe decision, at a **strictness** you choose (precision first, balanced, or recall first).
+- 🔒 **Reproducible by construction**: screening is pinned to one named model and one strictness level per review; the model that actually judged each record is recorded, and the batch refuses to mix models or levels.
+- 🤝 **Human-in-the-loop review with an assistant**: decide the `Maybe` cases with the corpus chatbot beside the cards; *Ask about this record* makes it weigh a paper against each criterion with quoted evidence and a recommendation. The decision stays yours.
+- 📊 **PRISMA reporting**: a live PRISMA 2020 flow, counts per source, why records were excluded, the models and strictness used, a searchable table of every record, and a CSV export with one column triplet per criterion.
+- 🆓 **Runs for free**: OrcaRouter's *Free* routing mode and Gemini's free tier both work without credits; a one-click *Auto / Free* toggle switches OrcaRouter between free and paid routing.
+- 🧭 **Any discipline**: nothing about a research field is hard-coded.
 
 ---
 
-## 🚀 Setup & Configuration
+## 🚀 Quick start
 
 ### 1. Prerequisites
-- Python 3.9+
-- An API key for **one** of the two supported LLM providers:
 
-**Option A — OrcaRouter (default):** an [OrcaRouter](https://www.orcarouter.ai) API key (`sk-orca-…`) with some credit on the account. OrcaRouter is an OpenAI-compatible gateway that routes each request to one of 100+ upstream models (Anthropic, OpenAI, Google, DeepSeek, Qwen, …), so you never have to manage per-vendor keys or chase deprecated model names. Sign in to the [OrcaRouter console](https://www.orcarouter.ai/console) and create an API key.
+- Python 3.9 or newer.
+- An API key for **one** of the two LLM providers. You enter it in the app, not in a file.
 
-> **Free mode (no credits needed).** You do not have to add credits. OrcaRouter offers free upstream models: the `orcarouter/free` meta-model routes to whichever free model is available, and concrete free models are listed with a `-free` suffix (for example `deepseek/deepseek-v4-flash-free`, `qwen/qwen3.8-27b-free`, `tencent/hy3-free`; run `python3 test_llm.py --models` to see the current list). Choose **Free** in the *Auto / Free* routing toggle of the ⚙️ Settings dialog, or set `MODEL_NAME=orcarouter/free` and `MODEL_SCREENING=<a -free model>` in `.env`. Free models are slower and rate-limited; **Auto** (`orcarouter/auto`, best model per request) needs credits. If you see `HTTP 402 insufficient_user_quota`, the account has no credits and you are still on *Auto*.
+**Option A — OrcaRouter (default).** Sign in to the [OrcaRouter console](https://www.orcarouter.ai/console) and create an API key (`sk-orca-…`). You do **not** have to add credits: OrcaRouter offers free upstream models, and the app's *Free* routing mode uses them. *Auto* routing (best model per request) needs credits; if you ever see `HTTP 402 insufficient_user_quota`, the account has no credits and the app is still on *Auto*.
 
-**Option B — Google Gemini (free tier, no credit card):** a [Google AI Studio](https://aistudio.google.com/) API key. Sign in with a Google account and click **Get API key** → **Create API key**. As a new user, AI Studio automatically provisions a default Google Cloud project for you, and the key gets free-tier access immediately — no billing account needed. If you already manage a GCP project you can instead enable the **Generative Language API** in [Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials) and create the key there (this is still the free Gemini Developer API, not the billed Vertex AI). PrismaOwl talks to Gemini through its OpenAI-compatible endpoint, so no Google SDK is installed.
+**Option B — Google Gemini (free tier, no credit card).** Sign in to [Google AI Studio](https://aistudio.google.com/) and click **Get API key → Create API key**. As a new user, AI Studio provisions a default Google Cloud project for you and the key gets free-tier access immediately. If you already manage a GCP project you can instead enable the **Generative Language API** in [Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials) and create the key there (this is the free Gemini Developer API, not the billed Vertex AI).
 
-> **Can't create a Gemini key?** If Google AI Studio refuses to generate an API key (e.g. it appears to require a paid plan), this is usually caused by an unverified Google account age, not billing. Verify your age on your [Google Account](https://myaccount.google.com/) (a government ID may be requested) and retry — see [discussion #5](https://github.com/0xj0hannes/PrismaOwl/discussions/5).
+> **Can't create a Gemini key?** If AI Studio refuses to generate one (it may look as if a paid plan were required), the usual cause is an unverified Google account age, not billing. Verify your age on your [Google Account](https://myaccount.google.com/) and retry — see [discussion #5](https://github.com/0xj0hannes/PrismaOwl/discussions/5). Keys created in AI Studio today are the newer *auth key* type; if you reuse an older *Standard* key, [migrate it](https://ai.google.dev/gemini-api/docs/api-key), as Google rejects Standard keys from September 2026.
 
-> **Note on Gemini key types:** Keys created in AI Studio today are issued as the newer *auth key* type, so a fresh key already meets current requirements. If you are reusing an older *Standard* key, migrate it — [Google's docs](https://ai.google.dev/gemini-api/docs/api-key) state the Gemini API will reject Standard keys from September 2026, and unrestricted keys left dormant for an extended period are blocked (shown with a **Blocked** tag in AI Studio). If screening suddenly fails on a key that used to work, check this first.
-
-### 2. Installation
-Clone the repository and install the dependencies into a virtual environment so they stay isolated from your system Python:
+### 2. Install and run
 
 ```bash
 git clone https://github.com/0xj0hannes/PrismaOwl.git
@@ -61,143 +57,71 @@ source .venv/bin/activate        # macOS / Linux (bash, zsh)
 # .venv\Scripts\activate         # Windows (PowerShell or cmd)
 
 pip install -r requirements.txt
+python -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-Activate the environment in every new terminal before running the commands below (use the `activate.fish` script if your shell is fish; the plain `activate` script is bash/zsh syntax and fails there). If you prefer not to activate it, prefix commands with `.venv/bin/python` instead of `python3`.
+Open `http://127.0.0.1:8000` in your browser. Activate the virtual environment in every new terminal before starting the server (fish users: the `activate.fish` script; the plain `activate` script is bash/zsh syntax).
 
-### 3. Environment Setup
-Create a `.env` file in the root directory (or enter everything in the ⚙️ Settings dialog of the web UI, which writes the same file). With OrcaRouter and credits on the account:
-```env
-ORCA_API_KEY=sk-orca-your_key_here
-MODEL_NAME=orcarouter/auto      # or any id from `python3 test_llm.py`, e.g. anthropic/claude-sonnet-5
-MODEL_SCREENING=anthropic/claude-sonnet-5   # screening needs one concrete model
-MAX_RETRIES=3
-```
+### 3. Configure in the app
 
-With OrcaRouter and **no credits** (free mode):
-```env
-ORCA_API_KEY=sk-orca-your_key_here
-MODEL_NAME=orcarouter/free
-MODEL_SCREENING=deepseek/deepseek-v4-flash-free
-MAX_RETRIES=3
-```
+Click **⚙️ Settings** at the bottom of the sidebar (or open `http://127.0.0.1:8000/#settings`):
 
-Or with Gemini:
-```env
-GEMINI_API_KEY=your_api_key_here
-MODEL_NAME=gemini-3.5-flash
-MAX_RETRIES=3
-```
+1. **LLM provider**: pick OrcaRouter or Google Gemini (or leave *auto-detect*), paste the API key, press **Test connection**. Keys are stored in the local `.env` file next to the app and are never shown again in the browser.
+2. **Routing** (OrcaRouter only): choose **Free** to run without credits or **Auto** for the best paid model per request. *Free* also fills in a free screening model for you.
+3. **Models**: **Load model list** pulls the ids your key can use into the model fields. The default model serves query building, criteria drafting and chat; the **screening** model must be one concrete model (see [Reproducibility](#-reproducibility-and-audit-trail)).
+4. **Theme**: dark, light, or follow the system.
 
-The provider is picked from whichever key is present (OrcaRouter wins if both are set); set `LLM_PROVIDER=orcarouter` or `LLM_PROVIDER=gemini` to choose explicitly. Google deprecates older Gemini models over time: if screening fails with a `404` such as *"This model is no longer available to new users"*, run `python3 test_llm.py` to list the models available to your key and set `MODEL_NAME` accordingly.
-
-Per-task overrides let you use one model for screening and others for the search-strategy builder or chatbot:
-
-```env
-MODEL_SCREENING=anthropic/claude-sonnet-5
-MODEL_QUERY=orcarouter/auto
-MODEL_CRITERIA=
-MODEL_CHAT=google/gemini-3.5-flash
-```
-
-> **Screening is pinned to one model.** Screening decisions are what you report, so they must be reproducible and objective: every record of a review has to be judged by the same, explicitly named model. When the provider is OrcaRouter, `MODEL_SCREENING` (or `MODEL_NAME` if the override is empty) must therefore be a concrete `vendor/model` id. The routing meta-models `orcarouter/auto`, `orcarouter/free` and `orcarouter/fusion-*` are refused for screening, the model id the router reports back is checked against the pin after every call (a substituted answer is discarded and the batch stops), and a batch will not start while existing results were produced by a different model — restore the previous model or reset the screening results first. Each result stores the model that judged it (`model_version`) for the audit trail. Meta-models remain fine for query building, criteria drafting and chat.
-
-Run `python3 test_llm.py` to list every model id your key can use and to check that each configured task model answers (add `--provider gemini` or `--provider orcarouter` to test the other provider). A `402` error from OrcaRouter means the account has no credits.
-
-**Using OrcaRouter without credits.** Set `MODEL_NAME=orcarouter/free` so query building, criteria drafting and chat use free upstream models. Screening still has to be pinned to one concrete model, so pick one of the free ids from `python3 test_llm.py --models` (they end in `-free`). The *Auto / Free* toggle in ⚙️ Settings does both in one click: it sets the default model to `orcarouter/free` and fills the screening model with a free id from your live model list. See `.env.example` for the optional harvester keys (`OPENALEX_EMAIL`, `SEMANTIC_SCHOLAR_API_KEY`, `SCOPUS_API_KEY`, `IEEE_API_KEY`).
+Press **Save**. Optional harvester credentials (an e-mail for OpenAlex/Crossref's polite pool, Semantic Scholar, Scopus, IEEE Xplore keys) are in the same dialog and only matter for those databases.
 
 ---
 
-## ⚙️ Configuring Inclusion Criteria
+## 🧭 Workflow
 
-PrismaOwl is completely dynamic: the inclusion criteria are the only place your research field enters the system, and you define them per project. The `criteria.json` shipped in the repository is just a **sample** (from a criminology review on cybercriminal behaviour); replace it with criteria for your own topic before screening.
+The sidebar follows the review in order, and every tab ends with a **Next** button. `#<tab>` in the URL (for example `/#screen`) opens a tab directly.
 
-Three ways to define them:
+1. **Search Strategy.** Enter your research question and press **Generate with AI** to get concept blocks (synonyms combined with OR, concepts combined with AND) and one query per database in that database's own syntax. Edit anything: once a strategy exists the button becomes **Refine with AI** and sends your concepts, queries and feedback to the model; **Start over from the research question** regenerates from scratch; **Rebuild from concepts** recomposes every query deterministically without an LLM call. A year range in the scope notes ("2010 onwards", "2015-2024") is written into the Scopus, Web of Science and arXiv queries and applied as an API filter when harvesting the others. Press **Run harvest** on any database with an open API: the hits are deduplicated into the corpus as a stored harvest run, downloadable as `.bib`. ACM DL and Web of Science have no open API; paste the query into their advanced search and upload the export on the next tab. Every edit saves automatically. The **Advanced** section holds the LLM's rationale and the limitations of the search, for your methods section.
 
-1. **Web UI → Criteria tab**: let the LLM draft a set from your research question (or refine the current one with feedback) and edit any field; every change is saved automatically to `criteria.json`.
-2. **CLI**: `python3 main.py criteria --topic "…" [--feedback "…"] [--count 3]` writes `criteria.json` after showing you the proposal.
-3. **By hand**: edit `criteria.json` in the project root.
+2. **Ingestion.** Records identified, unique records to screen, duplicates removed, per-source counts, and the list of harvest runs with what each contributed. Drag-and-drop `.bib` exports to add them. Duplicates (matched by DOI, or by normalised title + year + first author) are kept for the audit trail, listed with the record that was kept, and never screened. **Flush all ingested data** starts over with an empty corpus.
 
+3. **Criteria.** Let the LLM draft inclusion criteria from your research question (or refine the current set with feedback) and edit every field: name, definition, signals to look for, negative indicators that must not count as evidence. Changes save automatically. The criteria are the only place your research field enters the tool; they drive the screening prompt, the review buttons, the chat context and the CSV columns. Fix them before screening; changing them afterwards means resetting the results and screening again.
 
-For each block, you must provide:
-- **`name`**: A short, human-readable identifier.
-- **`definition`**: A primary description of the rule.
-- **`signals`**: String patterns for the AI to understand what characteristics to actively look for.
-- **`negative_indicators`**: Negative indicators that shouldn't be falsely conflated (useful for forcing high precision).
+4. **Screening.** Choose the **decision strictness** — *Strict* (precision first, `Maybe` is rare), *Balanced* (every unclear abstract goes to review) or *Lenient* (recall first, only clearly off-topic papers are excluded) — and press **Start Screening**. Each unique record is sent to the pinned model with your criteria; the background job saves every result immediately, survives closed tabs, waits out rate limits, and stops on fatal errors with an explanation. **Reset screening results** clears the results to screen again from scratch.
 
-The system's entire stack—including the LLM Prompts, the CSV Export Analytics, the CLI Tools, and the Web GUI—will automatically parse your `criteria.json` and perfectly adapt to your experiment parameters without requiring any further code modifications!
+5. **Review.** Every `Maybe` record appears as a card with the abstract and the per-criterion scores, evidence and rationale. Press **Include** or **Exclude** (with the unmet criteria). The assistant beside the cards has read the corpus: **Ask about this record** makes it assess the card criterion by criterion with quoted evidence and a recommendation, and you can ask it anything about the included papers. It advises; you decide, and the human decision is what the report records.
 
----
+6. **Reports.** The PRISMA 2020 flow with live counts (records identified per source, duplicates removed, screened, excluded with the unmet criteria behind it, awaiting human decision, included; the full-text stages are shown greyed because they happen outside the tool), counts per source, why records were not included, the models and strictness used with mean criterion scores, and a searchable, filterable table of every record. **Download CSV report** exports one row per record with the decision, and for each criterion its score, evidence and rationale, plus the model version and strictness.
 
-## 🌐 Web GUI Usage (Recommended)
-
-To launch the full interactive web experience (with the virtual environment activated):
-```bash
-python -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
-```
-Then navigate to `http://127.0.0.1:8000` in your browser.
-
-- **Search Strategy**: Enter your research question, click *Generate with AI*, and get concept blocks plus one query per database. Once a strategy exists the same button becomes *Refine with AI* and sends your current concepts, queries and feedback to the model; *Start over from the research question* regenerates from scratch. Edit the concept blocks and press *Rebuild from concepts* to regenerate every database query deterministically (AND between concepts, OR inside, each database's own syntax) without another LLM call. Every edit is saved automatically to `search_strategy.json` (the CLI reads the same file), so there is no Save button. A year range in the scope notes ("2010 onwards", "2015-2024") is written into the Scopus, Web of Science and arXiv queries and applied as an API filter when harvesting OpenAlex, Semantic Scholar, Crossref and IEEE. Press *Run harvest* on any database with an open API: the hits are stored straight into the corpus (deduplicated against what is already there) as a **harvest run** that remembers the query, database, date and year range, and can be downloaded as `.bib` at any time. ACM DL and Web of Science show the query to paste into their advanced search; upload their exports on the Ingestion tab.
-- **Ingestion**: A dashboard shows records identified, unique records to screen, duplicates removed and the per-source breakdown, the list of harvest runs with what each contributed, and the list of duplicate records with the reason (DOI match, or normalised title + year + first author) and the record that was kept. Drag-and-drop `.bib` exports (Scopus, Web of Science, ACM…) to add them. Duplicates are stored but never screened, so the PRISMA flow numbers come straight from the corpus.
-- **Criteria**: Draft or refine inclusion criteria with the LLM and edit them in place; changes save automatically to `criteria.json` (saving waits while a screening batch runs). A *Reset screening results* button is there for when the criteria change mid-project.
-- **Screening**: Choose the **decision strictness** (Strict: precision first, few *Maybe*s; Balanced: every unclear abstract goes to review; Lenient: recall first, only clearly off-topic papers are excluded), then start the background AI task. Each result records the model that judged it and the strictness level, both of which appear in the CSV; a review cannot mix levels or models without resetting the results.
-- **Review**: Adjudicate uncertain "Maybe" cases with rapid-action buttons, with the corpus chatbot in a panel beside the cards. *Ask about this record* makes it weigh the card against each criterion with quoted evidence and a recommendation; you can also ask it anything about the included papers (themes, methods, which papers mention X…). Answers cite record IDs; widen its knowledge to include *Maybe* or all screened records.
-- **Reports**: A dashboard with the PRISMA 2020 flow (identified, duplicates removed, screened, excluded, awaiting review, included; the full-text steps are shown greyed because they happen outside the tool), counts per source, why records were not included, the models and strictness used, and a searchable, filterable table of every record with its decision and criterion scores. The CSV report download is still there.
-- Every tab ends with a **Next** button that walks you through the stages in order; `#<tab>` in the URL (e.g. `/#screen`) opens a tab directly and `#settings` opens the Settings dialog.
-- **⚙️ Settings** (bottom of the sidebar): choose the LLM provider (OrcaRouter or Gemini), enter API keys, pick the model per task from the provider's live model list, set retries/timeout and harvester credentials, and switch between dark, light and system theme. Everything except the theme is written to `.env`, so the CLI sees the same configuration.
+Every tab has a **?** button that explains the feature and the PRISMA 2020 checklist items it supports.
 
 ---
 
-## 🛠️ CLI Usage Pipeline (Legacy/Scripting)
+## 🔒 Reproducibility and audit trail
 
-The system also retains terminal commands for headless pipeline scripting:
+Screening decisions are what you report, so they must be reproducible and objective:
 
-### Step 0: Search strategy & harvesting (optional)
-```bash
-# Ask the LLM for concept blocks + one query per database (saved to search_strategy.json)
-python3 main.py query --topic "Effectiveness of mindfulness-based interventions on burnout in healthcare workers"
-python3 main.py query --feedback "add terms for nurses and physicians; restrict to 2010 onwards"   # refine
-python3 main.py query --build      # rebuild the queries from the saved concepts, no LLM call
-python3 main.py query --show
+- **One model per review.** When the provider is OrcaRouter the screening model must be a concrete `vendor/model` id (the routing meta-models `orcarouter/auto`, `orcarouter/free` and `orcarouter/fusion-*` are refused for screening; a free concrete model such as `deepseek/deepseek-v4-flash-free` is fine). The model the router reports back is checked against the pin after every call, a substituted answer is discarded, and a batch will not start while existing results were judged by a different model.
+- **One strictness level per review.** The level is recorded on every result and a batch refuses to mix levels.
+- **Everything is recorded.** Each result stores the model that judged it and the strictness level (both in the CSV); all prompts and raw responses go to `logs/screening.log`; the duplicate records and harvest runs stay in the database so the PRISMA counts can be reproduced.
 
-# Run the saved query for a database (or pass --query) and save BibTeX
-python3 main.py harvest --list-sources
-python3 main.py harvest --source openalex --max 1000                 # year range taken from the scope notes
-python3 main.py harvest --source openalex --year-from 2015 --year-to 2024
-python3 main.py harvest --source arxiv --query 'all:"large language model" AND abs:"code review"' --output bib_files/arxiv.bib
+Meta-models remain fine for query building, criteria drafting and chat.
 
-# Draft inclusion criteria from the research question
-python3 main.py criteria --topic "Effectiveness of mindfulness-based interventions on burnout in healthcare workers" --count 3
-```
+---
 
-### Step 1: Ingestion & Deduplication
-```bash
-# Bulk directory ingestion
-python3 main.py ingest /path/to/bib_files_directory/ --output data/deduplicated.json
-```
+## 💾 Where your data lives
 
-### Step 2: AI-Powered Screening
-```bash
-python3 main.py screen --input data/deduplicated.json --output data/screened.json
-```
+| Path | Contents |
+| :--- | :--- |
+| `data/prisma.db` | SQLite corpus: records (duplicates flagged), harvest runs, screening results and human decisions. Back it up to keep a review. |
+| `criteria.json` | Your inclusion criteria (the repository ships a sample set; the app overwrites it as you edit). |
+| `search_strategy.json` | Your research question, concepts, scope notes and queries. |
+| `.env` | Provider keys, models and settings written by the Settings dialog. Never commit it. |
+| `logs/screening.log` | Full prompts and raw LLM responses for the audit trail. |
 
-### Step 3: Human-in-the-Loop Review
-Review cases where the AI was uncertain ("Maybe").
-```bash
-python3 main.py review --input data/screened.json --output data/final_included.json
-```
+---
 
-### Step 4: Export & Reporting
-Generate a detailed CSV report for your analysis.
-```bash
-python3 main.py report --input data/final_included.json --output data/screening_report.csv
-```
+## 🛠️ Command line (deprecated)
 
-### Step 5: Ask the corpus
-```bash
-python3 main.py chat --input data/final_included.json                     # interactive REPL
-python3 main.py chat --input data/final_included.json --ask "Which papers report a randomised controlled trial?"
-```
+`main.py` still offers a file-based pipeline (`query`, `harvest`, `criteria`, `ingest`, `screen`, `review`, `report`, `chat`) that works on JSON and `.bib` files rather than the web corpus, and `test_llm.py` smoke-tests a provider from the terminal. **Both are deprecated and will be removed in a future release**: they receive no new features, they do not see the web corpus, and everything they do is available in the web interface (the Settings dialog replaces `test_llm.py`). Use `python3 main.py --help` if you still need them.
 
 ---
 
@@ -205,17 +129,19 @@ python3 main.py chat --input data/final_included.json --ask "Which papers report
 
 | File | Description |
 | :--- | :--- |
-| `app.py` | FastAPI backend and REST server for the Web GUI. |
-| `main.py` | Central CLI entry point for headless execution. |
-| `src/db.py` | SQLite adapter mapping Pydantic records to persistent disk models. |
-| `src/llm.py` | OpenAI-compatible HTTP client for OrcaRouter and Gemini, provider selection, per-task model selection, error classification. |
-| `src/screening.py` | Screening orchestration with transient/fatal retry semantics. |
-| `src/prompts.py` | Expert-tuned, high-precision criteria gating instructions. |
-| `src/search_strategy.py` | LLM search-strategy builder (`search_strategy.json`). |
-| `src/harvest.py` | Database harvesters (OpenAlex, Semantic Scholar, arXiv, Crossref, Scopus, IEEE) and BibTeX writer. |
+| `app.py` | FastAPI backend: REST API and the web interface. |
+| `src/db.py` | SQLite corpus: records, harvest runs, screening results. |
+| `src/llm.py` | OpenAI-compatible HTTP client for OrcaRouter and Gemini, provider selection, screening-model pin, error classification. |
+| `src/prompts.py` | Screening prompt and the three strictness levels. |
+| `src/screening.py` | Screening orchestration with retry semantics and the reproducibility guards. |
+| `src/search_strategy.py` | LLM search-strategy builder, deterministic query builder, year-range parsing. |
+| `src/harvest.py` | Database harvesters (OpenAlex, Semantic Scholar, arXiv, Crossref, Scopus, IEEE) and BibTeX import/export. |
+| `src/deduplication.py` | DOI and title/year/author deduplication. |
 | `src/criteria_assist.py` | LLM inclusion-criteria assistant and `criteria.json` validation. |
-| `src/chat.py` | Chatbot over the screened corpus. |
-| `static/` | Custom vanilla HTML/CSS/JS frontend dashboard. |
+| `src/chat.py` | Assistant over the screened corpus, with the record-under-review focus. |
+| `src/reporting.py` | CSV report. |
+| `static/` | Vanilla HTML/CSS/JS frontend. |
+| `main.py`, `test_llm.py` | Deprecated command-line tools. |
 
 ---
 
@@ -227,7 +153,7 @@ python3 main.py chat --input data/final_included.json --ask "Which papers report
 
 The PRISMA 2020 statement and flow diagram are made available by the PRISMA Group at [prisma-statement.org](https://www.prisma-statement.org/).
 
-> **Disclaimer.** This software is an independent screening-assistant tool and is *not* endorsed by, or affiliated with, the PRISMA Group. It implements one stage of the PRISMA-recommended workflow; users remain responsible for adherence to the full reporting guideline.
+> **Disclaimer.** This software is an independent screening-assistant tool and is *not* endorsed by, or affiliated with, the PRISMA Group. It implements the identification and title/abstract screening stages of the PRISMA-recommended workflow; users remain responsible for adherence to the full reporting guideline.
 
 ---
 
@@ -240,7 +166,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-Tests cover ingestion (BibTeX parsing), deduplication, dynamic prompt generation, CSV reporting, the LLM client (both providers) and retry logic in `screen_record`, the database harvesters and BibTeX round-trip, and the search-strategy / criteria / chat helpers. The same suite runs in CI on every push and pull request (see `.github/workflows/tests.yml`).
+Tests cover ingestion and deduplication, the query builder and year-range parsing, the harvesters and BibTeX round-trip, the LLM client for both providers, the screening logic with its reproducibility guards, the strictness prompts, the chat assistant, and the web endpoints for settings, ingestion, harvest runs and reports. The same suite runs in CI on every push and pull request (see `.github/workflows/tests.yml`).
 
 ---
 
