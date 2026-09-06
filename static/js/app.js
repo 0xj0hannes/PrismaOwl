@@ -715,6 +715,59 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     settingInput('LLM_PROVIDER').addEventListener('change', updateProviderBlocks);
 
+    // OrcaRouter routing toggle: Auto <-> orcarouter/auto, Free <-> orcarouter/free.
+    // Anything else typed into MODEL_NAME leaves both unselected ("custom").
+    const ROUTING_MODELS = { auto: 'orcarouter/auto', free: 'orcarouter/free' };
+    const isMetaModel = (id) => /^orcarouter\//i.test((id || '').trim());
+    const isFreeModel = (id) => /(-|:)free$/i.test((id || '').trim());
+    let modelListCache = null;      // ids from /api/settings/models, once loaded
+
+    function syncRoutingFromModel() {
+        const name = settingInput('MODEL_NAME').value.trim().toLowerCase();
+        const mode = name === '' || name === ROUTING_MODELS.auto ? 'auto'
+            : name === ROUTING_MODELS.free ? 'free' : '';
+        document.querySelectorAll('input[name="orca-routing"]').forEach(r => { r.checked = r.value === mode; });
+    }
+    settingInput('MODEL_NAME').addEventListener('input', syncRoutingFromModel);
+
+    async function loadModelList(provider) {
+        if (modelListCache) return modelListCache;
+        const res = await api('/api/settings/models' + (provider ? `?provider=${encodeURIComponent(provider)}` : ''));
+        modelListCache = res;
+        const dl = $('model-ids');
+        dl.innerHTML = '';
+        res.models.forEach(id => { const o = document.createElement('option'); o.value = id; dl.appendChild(o); });
+        return res;
+    }
+
+    document.querySelectorAll('input[name="orca-routing"]').forEach(radio => radio.addEventListener('change', async () => {
+        if (!radio.checked) return;
+        settingInput('MODEL_NAME').value = ROUTING_MODELS[radio.value];
+        const st = $('settings-models-status');
+        const screening = settingInput('MODEL_SCREENING');
+        if (radio.value === 'free') {
+            // Screening cannot run on the meta-model: pick a concrete free model
+            // unless the field already holds one.
+            if (!isFreeModel(screening.value)) {
+                let choice = (settingsSnapshot && settingsSnapshot.free_screening_default) || '';
+                try {
+                    setStatus(st, 'Looking up free models…');
+                    const res = await loadModelList('orcarouter');
+                    const free = res.models.filter(isFreeModel);
+                    if (free.length) choice = free.includes(choice) ? choice : free[0];
+                    setStatus(st, `Screening model set to ${choice} (${free.length} free models available).`, 'success');
+                } catch (e) {
+                    setStatus(st, `Could not load the model list (${e.message}); using ${choice}.`, 'error');
+                }
+                screening.value = choice;
+            }
+        } else if (isMetaModel(screening.value) || screening.value.trim() === '') {
+            setStatus(st, 'Auto routing needs credits. Pick one concrete screening model below (meta-models are refused for screening).', '');
+        } else {
+            setStatus(st, '');
+        }
+    }));
+
     function renderSecret(key, state) {
         const input = settingInput(key);
         input.value = '';
@@ -746,6 +799,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('[data-clear]').forEach(b => { b.textContent = 'Remove'; });
         $('setting-theme').value = savedTheme();
         updateProviderBlocks();
+        syncRoutingFromModel();
         setStatus($('settings-status'), '');
         refreshPinWarning();
     }
@@ -773,6 +827,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function openSettings() {
         settingsModal.classList.remove('hidden');
+        modelListCache = null;
         $('setting-theme').value = savedTheme();
         setStatus($('settings-test-status'), '');
         setStatus($('settings-models-status'), '');
@@ -819,11 +874,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const st = $('settings-models-status');
         setStatus(st, 'Loading…');
         try {
-            const pv = settingInput('LLM_PROVIDER').value;
-            const res = await api('/api/settings/models' + (pv ? `?provider=${encodeURIComponent(pv)}` : ''));
-            const dl = $('model-ids');
-            dl.innerHTML = '';
-            res.models.forEach(id => { const o = document.createElement('option'); o.value = id; dl.appendChild(o); });
+            modelListCache = null;
+            const res = await loadModelList(settingInput('LLM_PROVIDER').value);
             setStatus(st, `${res.models.length} models from ${res.label}; start typing in a field to pick one.`, 'success');
         } catch (e) {
             setStatus(st, e.message, 'error');

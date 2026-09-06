@@ -517,3 +517,20 @@ input[type="password"] {
 .provider-block .settings-grid { margin-top: 10px; }
 .tag.muted { color: var(--text-secondary); }
 @media (max-width: 640px) { .settings-grid { grid-template-columns: 1fr; } }
+
+/* Segmented toggle (Settings -> OrcaRouter routing) */
+.segmented { display: flex; gap: 8px; }
+.segment { flex: 1; cursor: pointer; }
+.segment input { position: absolute; opacity: 0; width: 0; height: 0; }
+.segment span {
+    display: flex; flex-direction: column; gap: 2px; padding: 8px 12px;
+    border: 1px solid var(--border-glass); border-radius: 8px; background: var(--surface-input);
+    color: var(--text-secondary); transition: all 0.2s ease;
+}
+.segment small { font-size: 0.72rem; font-weight: 400; }
+.segment:hover span { border-color: var(--border-strong); color: var(--text-primary); }
+.segment input:checked + span {
+    border-color: var(--accent-blue); color: var(--text-primary);
+    background: rgba(59, 130, 246, 0.12); box-shadow: inset 0 0 0 1px var(--accent-blue);
+}
+.segment input:focus-visible + span { outline: 2px solid var(--accent-blue); outline-offset: 2px; }

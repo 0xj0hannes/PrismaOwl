@@ -125,6 +125,7 @@ async def get_settings():
         },
         "secrets": {k: _secret_state(os.getenv(k)) for k in SECRET_SETTINGS},
         "resolved_models": {"default": model_for("", cfg), **{t: model_for(t, cfg) for t in TASKS}},
+        "free_screening_default": llm_module.DEFAULT_FREE_SCREENING_MODEL,
     }
 
 

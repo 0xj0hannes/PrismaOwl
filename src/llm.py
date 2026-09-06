@@ -306,6 +306,9 @@ def model_for(task: str, cfg: Optional[Dict[str, Any]] = None) -> str:
 # checked against it after every call.
 
 META_MODEL_PREFIX = "orcarouter/"
+# Concrete free model suggested for screening when routing is set to "free"
+# (the UI prefers the live model list; this is the fallback).
+DEFAULT_FREE_SCREENING_MODEL = "deepseek/deepseek-v4-flash-free"
 
 
 class ScreeningModelError(ValueError):

@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PrismaOwl</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=5">
+    <link rel="stylesheet" href="/static/css/style.css?v=6">
     <script>
         // Apply the saved theme before first paint to avoid a flash of the wrong theme.
         (function () {
@@ -404,8 +404,19 @@
                             </div>
                             <label class="field-label" for="setting-ORCA_BASE_URL">Base URL</label>
                             <input type="text" id="setting-ORCA_BASE_URL" placeholder="https://api.orcarouter.ai/v1">
+                            <span class="field-label">Routing</span>
+                            <div class="segmented" id="orca-routing" role="radiogroup" aria-label="OrcaRouter routing">
+                                <label class="segment">
+                                    <input type="radio" name="orca-routing" value="auto">
+                                    <span><strong>Auto</strong><small>best model per request · needs credits</small></span>
+                                </label>
+                                <label class="segment">
+                                    <input type="radio" name="orca-routing" value="free">
+                                    <span><strong>Free</strong><small>free upstream models · no credits needed</small></span>
+                                </label>
+                            </div>
                         </div>
-                        <p class="settings-help">Get a key at <a href="https://www.orcarouter.ai/console" target="_blank" rel="noopener">orcarouter.ai/console</a>. Without credits, use <code>orcarouter/free</code> below and a concrete <code>-free</code> model for screening.</p>
+                        <p class="settings-help" id="orca-routing-help">Get a key at <a href="https://www.orcarouter.ai/console" target="_blank" rel="noopener">orcarouter.ai/console</a>. <em>Auto</em> sets the default model to <code>orcarouter/auto</code>, <em>Free</em> to <code>orcarouter/free</code>; screening always needs one concrete model, so <em>Free</em> also picks a free <code>-free</code> model for it.</p>
                     </div>
 
                     <div class="provider-block" id="provider-block-gemini">
@@ -505,7 +516,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=7"></script>
+    <script src="/static/js/app.js?v=8"></script>
 </body>
 
 </html>

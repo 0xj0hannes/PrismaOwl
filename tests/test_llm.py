@@ -166,7 +166,8 @@ def test_resolve_provider_prefers_explicit_then_keys():
 
 def test_load_config_gemini_only_key_selects_gemini(monkeypatch):
     from src import config as cfgmod
-    for var in ("LLM_PROVIDER", "ORCA_API_KEY", "GEMINI_API_KEY", "MODEL_NAME", "GEMINI_BASE_URL"):
+    for var in ("LLM_PROVIDER", "ORCA_API_KEY", "GEMINI_API_KEY", "MODEL_NAME", "GEMINI_BASE_URL",
+                "MODEL_SCREENING", "MODEL_QUERY", "MODEL_CRITERIA", "MODEL_CHAT"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "g-key")
     monkeypatch.setattr(cfgmod, "load_dotenv", lambda *a, **k: None)
