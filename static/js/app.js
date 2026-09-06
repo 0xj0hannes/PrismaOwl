@@ -140,7 +140,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <textarea class="concept-terms mt-10" rows="2" placeholder="Terms separated by ; (synonyms, variants, truncation*)"></textarea>`;
         row.querySelector('.concept-terms').value = (concept.terms || []).join('; ');
-        row.querySelector('.concept-remove').addEventListener('click', () => row.remove());
+        row.querySelector('.concept-remove').addEventListener('click', () => { row.remove(); scheduleStrategySave(); });
         conceptsContainer.appendChild(row);
     }
 
@@ -243,8 +243,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (refine) body.current = collectStrategy();
             const data = await postJSON('/api/search-strategy/generate', body);
             renderStrategy(data.strategy);
-            setStatus(status, 'Draft ready. Review, edit, then Save.', 'success');
-            $('strategy-save-status').textContent = 'Unsaved changes';
+            await saveStrategyNow();
+            setStatus(status, 'Draft saved. Review and edit; changes save automatically.', 'success');
         } catch (e) {
             setStatus(status, 'Error: ' + e.message, 'error');
         } finally { btns.forEach(b => b.disabled = false); }
@@ -281,22 +281,54 @@ document.addEventListener('DOMContentLoaded', () => {
                 msg += ' No year range found in the scope notes (write e.g. "2010 onwards" or "2015-2024" to add a date filter).';
             }
             setStatus(status, msg, 'success');
-            $('strategy-save-status').textContent = 'Unsaved changes';
+            await saveStrategyNow();
         } catch (e) {
             setStatus(status, 'Error: ' + e.message, 'error');
         } finally { btn.disabled = false; }
     });
     $('btn-strategy-refine').addEventListener('click', () => runStrategyAI(true));
 
-    $('btn-strategy-save').addEventListener('click', async () => {
+    // Auto-save: the strategy is persisted a moment after the last edit (and
+    // immediately after Generate / Refine / Rebuild). No Save button.
+    let strategySaveTimer = null;
+    let strategySaving = null;      // in-flight promise
+    let strategySaveAgain = false;  // an edit arrived while saving
+
+    async function saveStrategyNow() {
+        if (strategySaving) { strategySaveAgain = true; return strategySaving; }
+        clearTimeout(strategySaveTimer);
         const status = $('strategy-save-status');
-        try {
-            const data = await postJSON('/api/search-strategy', collectStrategy(), 'PUT');
-            savedStrategy = data.strategy;
-            setStatus(status, 'Saved to search_strategy.json', 'success');
-        } catch (e) { setStatus(status, 'Error: ' + e.message, 'error'); }
+        setStatus(status, 'Saving…');
+        strategySaving = (async () => {
+            try {
+                const data = await postJSON('/api/search-strategy', collectStrategy(), 'PUT');
+                savedStrategy = data.strategy;
+                const t = new Date();
+                setStatus(status, `Saved ${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}:${String(t.getSeconds()).padStart(2, '0')}`, 'success');
+            } catch (e) {
+                setStatus(status, 'Not saved: ' + e.message, 'error');
+            } finally {
+                strategySaving = null;
+                if (strategySaveAgain) { strategySaveAgain = false; saveStrategyNow(); }
+            }
+        })();
+        return strategySaving;
+    }
+    function scheduleStrategySave() {
+        clearTimeout(strategySaveTimer);
+        setStatus($('strategy-save-status'), 'Editing…');
+        strategySaveTimer = setTimeout(saveStrategyNow, 900);
+    }
+    // Any edit inside the tab (concept names/terms, scope notes, queries,
+    // research question, rationale) schedules a save. Feedback and the
+    // harvest size are not part of the strategy.
+    $('strategy').addEventListener('input', (e) => {
+        const el = e.target;
+        if (!el || el.id === 'strategy-feedback' || el.id === 'harvest-max') return;
+        if (!el.matches('input, textarea')) return;
+        scheduleStrategySave();
     });
-    $('btn-strategy-reload').addEventListener('click', () => { loadStrategy(); setStatus($('strategy-save-status'), ''); });
+    window.addEventListener('beforeunload', () => { if (strategySaveTimer) { clearTimeout(strategySaveTimer); saveStrategyNow(); } });
 
     // --- Harvesting -----------------------------------------------------
     let harvestPoll = null;
@@ -753,7 +785,7 @@ document.addEventListener('DOMContentLoaded', () => {
         strategy: {
             title: 'Search Strategy',
             body: `
-<p>This tab turns your research question into <strong>concept blocks</strong> (groups of synonyms combined with OR) and one ready-to-paste <strong>Boolean query per database</strong>, each in that database's own syntax. The LLM drafts it; you edit and save it to <code>search_strategy.json</code>.</p>
+<p>This tab turns your research question into <strong>concept blocks</strong> (groups of synonyms combined with OR) and one ready-to-paste <strong>Boolean query per database</strong>, each in that database's own syntax. The LLM drafts it; your edits are saved automatically to <code>search_strategy.json</code>, which the CLI reads too.</p>
 <p>A systematic review must report the <em>full</em> search strategy for every database so that others can repeat the search. Keep the saved file, and note the date you ran each query.</p>
 <ul>
 <li>Edit the concept blocks yourself and press <em>Rebuild from concepts</em> to regenerate every database query without an LLM call; use <em>Refine current with AI</em> when you want the model to propose new synonyms.</li>
