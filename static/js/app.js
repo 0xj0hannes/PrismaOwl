@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tabId === 'screen') updateScreenStats();
         if (tabId === 'ingest') loadIngestStats();
         if (tabId === 'review') loadReviews();
-        if (tabId === 'strategy') { loadHarvestSources().then(() => { loadHarvestFiles(); pollHarvestJobs(); }); }
+        if (tabId === 'strategy') { loadHarvestSources().then(() => { loadHarvestRuns(); loadHarvestFiles(); pollHarvestJobs(); }); }
         if (tabId === 'criteria') { if (!criteriaDirty) loadCriteriaEditor(); }
         if (tabId === 'chat') loadChatScopes();
     }
@@ -107,12 +107,23 @@ document.addEventListener('DOMContentLoaded', () => {
             if (d.duplicate_list_truncated) more.textContent = `Showing the first ${d.duplicate_list.length} of ${d.duplicates} duplicates.`;
         } catch (e) { console.error('Failed to load ingestion stats', e); }
         try {
+            const r = await api('/api/harvest/runs');
+            const body = $('ingest-runs-table').querySelector('tbody');
+            body.innerHTML = r.runs.map(run => {
+                const res = run.result || {};
+                const status = run.status === 'done' ? '<span class="tag ok">done</span>'
+                    : `<span class="tag warn" title="${esc(run.error || '')}">failed</span>`;
+                return `<tr><td>${esc(databases[run.source] || run.source)}</td><td>${esc((run.started || '').replace('T', ' '))}</td>
+                    <td>${esc(run.years_label || '')}</td><td class="num">${res.count ?? ''}</td>
+                    <td class="num">${res.new_unique ?? ''}</td><td class="num">${res.new_duplicates ?? ''}</td><td>${status}</td></tr>`;
+            }).join('') || '<tr><td colspan="7" class="info-text">No harvest runs yet. Run a query on the Search Strategy tab.</td></tr>';
+        } catch (_) { /* ignore */ }
+        try {
             const f = await api('/api/harvest/files');
+            $('ingest-legacy-card').classList.toggle('hidden', !f.files.length);
             const box = $('ingest-all-files');
             $('btn-ingest-all').disabled = !f.files.length;
-            box.innerHTML = f.files.length
-                ? f.files.map(x => `<div class="ingest-file-row"><span>${esc(x.name)}</span><span class="meta">${(x.size / 1024).toFixed(1)} KB · ${esc(x.modified.replace('T', ' '))}</span></div>`).join('')
-                : '<p class="info-text">No harvested files yet. Run a query on the Search Strategy tab.</p>';
+            box.innerHTML = f.files.map(x => `<div class="ingest-file-row"><span>${esc(x.name)}</span><span class="meta">${(x.size / 1024).toFixed(1)} KB · ${esc(x.modified.replace('T', ' '))}</span></div>`).join('');
         } catch (_) { /* ignore */ }
     }
 
@@ -342,8 +353,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     const pct = j.total ? Math.min(100, Math.round(100 * j.fetched / Math.min(j.total, j.max_results))) : 0;
                     right = `<div class="btn-row"><span class="meta">${j.fetched}${j.total != null ? ' / ' + Math.min(j.total, j.max_results) : ''} fetched</span>
                              <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div></div>`;
-                } else if (j.status === 'done') {
-                    right = `<span class="tag ok">done · ${j.result.count} records (${j.result.with_abstract} with abstracts)</span>`;
                 } else {
                     right = `<span class="tag warn" title="${esc(j.error)}">failed: ${esc((j.error || '').slice(0, 120))}</span>`;
                 }
@@ -355,16 +364,53 @@ document.addEventListener('DOMContentLoaded', () => {
             if (anyRunning) {
                 if (!harvestPoll) harvestPoll = setInterval(pollHarvestJobs, 2000);
             } else if (harvestPoll) {
-                clearInterval(harvestPoll); harvestPoll = null; loadHarvestFiles();
+                clearInterval(harvestPoll); harvestPoll = null;
+                loadHarvestRuns(); loadIngestStats();
             }
         } catch (e) { console.error(e); }
+    }
+
+    async function loadHarvestRuns() {
+        const box = $('harvest-runs');
+        try {
+            const data = await api('/api/harvest/runs');
+            if (!data.runs.length) { box.innerHTML = '<p class="info-text">No harvest runs yet. Press <strong>Run harvest</strong> on a query above.</p>'; return; }
+            box.innerHTML = '';
+            data.runs.forEach(run => {
+                const res = run.result || {};
+                const div = document.createElement('div');
+                div.className = 'harvest-file';
+                const label = databases[run.source] || run.source;
+                const yrs = run.years_label ? ` <span class="tag">years ${esc(run.years_label)}</span>` : '';
+                const state = run.status === 'done'
+                    ? `<span class="tag ok">done · ${res.count} fetched · ${res.new_unique} new unique · ${res.new_duplicates} duplicates</span>`
+                    : `<span class="tag warn" title="${esc(run.error || '')}">failed: ${esc((run.error || '').slice(0, 100))}</span>`;
+                div.innerHTML = `<div><strong>${esc(label)}</strong>${yrs} <span class="meta">${esc((run.started || '').replace('T', ' '))}</span><br>
+                        <span class="meta mono">${esc((run.query || '').slice(0, 160))}${(run.query || '').length > 160 ? '…' : ''}</span><br>${state}</div>
+                    <div class="btn-row">
+                        ${run.status === 'done' ? `<a class="btn-outline btn-sm" href="/api/harvest/runs/${encodeURIComponent(run.id)}/download" style="text-decoration:none">⬇ Download .bib</a>` : ''}
+                        <button class="btn-outline btn-sm r-delete" title="Remove this run and the unscreened records it added">✕</button>
+                        <span class="status-inline r-status"></span>
+                    </div>`;
+                div.querySelector('.r-delete').addEventListener('click', async () => {
+                    if (!confirm(`Remove this ${label} run and the records it added (records already screened are kept)?`)) return;
+                    try {
+                        const r = await api(`/api/harvest/runs/${encodeURIComponent(run.id)}`, { method: 'DELETE' });
+                        setStatus(div.querySelector('.r-status'), `Removed ${r.records_removed} records${r.records_kept ? `, kept ${r.records_kept} screened` : ''}.`, 'success');
+                        setTimeout(() => { loadHarvestRuns(); loadIngestStats(); }, 800);
+                    } catch (err) { alert(err.message); }
+                });
+                box.appendChild(div);
+            });
+        } catch (e) { box.innerHTML = '<p class="error">Failed to list harvest runs.</p>'; }
     }
 
     async function loadHarvestFiles() {
         const box = $('harvest-files');
         try {
             const data = await api('/api/harvest/files');
-            if (!data.files.length) { box.innerHTML = '<p class="info-text">No harvested files yet. Run a query above.</p>'; return; }
+            $('harvest-files-details').classList.toggle('hidden', !data.files.length);
+            if (!data.files.length) { box.innerHTML = ''; return; }
             box.innerHTML = '';
             data.files.forEach(f => {
                 const div = document.createElement('div');
@@ -791,8 +837,8 @@ document.addEventListener('DOMContentLoaded', () => {
         harvest: {
             title: 'Database queries & harvesting',
             body: `
-<p>Each row is the query for one database. <strong>Run</strong> sends it to that database's official API (OpenAlex, Semantic Scholar, arXiv, Crossref need no key; Scopus and IEEE Xplore need a key) and saves the results as a <code>.bib</code> file you can download or ingest directly. Databases without an open API (ACM DL, Web of Science) show the query to paste into their own search form; export the results from there and drop the file into <em>Ingestion</em>.</p>
-<p>Write down, per database, the number of records retrieved and the date. Those numbers are the first box of the PRISMA flow diagram.</p>`,
+<p>Each row is the query for one database. <strong>Run</strong> sends it to that database's official API (OpenAlex, Semantic Scholar, arXiv, Crossref need no key; Scopus and IEEE Xplore need a key) and stores the hits straight into the corpus as a <strong>harvest run</strong> that remembers the query, database, date, year range and how many records were new or duplicates. Any run can be downloaded as <code>.bib</code>. Databases without an open API (ACM DL, Web of Science) show the query to paste into their own search form; export the results from there and upload the file on <em>Ingestion</em>.</p>
+<p>The stored runs give you, per database, the number of records retrieved and the date: the first box of the PRISMA flow diagram.</p>`,
             items: '<strong>PRISMA 2020</strong> item 6 (information sources), item 7 (search strategy) and item 16a (number of records identified from each source, for the flow diagram).',
         },
         ingest: {
@@ -1104,6 +1150,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     loadCriteria().then(() => { updateScreenStats(); });
     loadLLMInfo();
-    loadHarvestSources().then(loadStrategy).then(() => { loadHarvestFiles(); pollHarvestJobs(); });
+    loadHarvestSources().then(loadStrategy).then(() => { loadHarvestRuns(); loadHarvestFiles(); pollHarvestJobs(); });
     loadCriteriaEditor();
 });

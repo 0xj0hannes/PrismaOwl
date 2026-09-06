@@ -104,3 +104,87 @@ def test_reingesting_same_file_is_skipped_and_key_clash_gets_new_id(web):
     rows = {x["id"]: x for x in db.get_all_records()}
     assert rows["smith2020_3"]["is_duplicate"] is True and rows["smith2020_3"]["duplicate_of"] == "smith2020"
     assert rows["smith2020"]["is_duplicate"] is False
+
+
+# ---------------------------------------------------------------------------
+# Harvest runs stored in SQLite
+# ---------------------------------------------------------------------------
+
+def _papers():
+    from src.harvest import Paper
+    return [Paper(title="Alpha Study", abstract="A.", authors=["Jane Doe", "John Roe"], year="2020",
+                  doi="10.1/alpha", venue="J. Test", entry_type="article", source_db="openalex", source_id="W1"),
+            Paper(title="Beta Study", authors=["Ann Poe"], year="2021", source_db="openalex", source_id="W2")]
+
+
+def test_papers_to_records_and_bibtex_round_trip():
+    from src.harvest import papers_to_records, records_to_bibtex
+    from src.ingestion import load_bibtex
+    recs = papers_to_records(_papers(), "OpenAlex harvest 2026-09-06 16:45", harvest_id="h1")
+    assert [r.id for r in recs] == ["doe2020alpha", "poe2021beta"]
+    assert recs[0].authors == "Doe, Jane, Roe, John" and recs[0].doi == "10.1/alpha"
+    assert recs[0].harvest_id == "h1" and recs[0].normalized_title
+    assert recs[0].raw_data["source_id"] == "W1"
+    bib = records_to_bibtex([r.model_dump() for r in recs], query="q", source="openalex")
+    import tempfile, os
+    with tempfile.NamedTemporaryFile("w", suffix=".bib", delete=False) as f:
+        f.write(bib)
+    try:
+        loaded = load_bibtex(f.name)
+    finally:
+        os.unlink(f.name)
+    assert [r.title for r in loaded] == ["Alpha Study", "Beta Study"]
+    assert loaded[0].doi == "10.1/alpha"
+
+
+def test_harvest_job_stores_records_and_run(web, monkeypatch):
+    monkeypatch.setattr(web, "harvest", lambda source, query, max_results, progress, years=(None, None): _papers())
+    job = {"id": "h1", "source": "openalex", "query": "alpha", "max_results": 10, "years": [2015, 2024],
+           "years_label": "2015\u20132024", "status": "running", "fetched": 0, "total": None,
+           "error": None, "result": None, "started": "2026-09-06T16:45:00"}
+    web.harvest_jobs["h1"] = job
+    web._run_harvest_job(job)
+
+    assert job["status"] == "done" and "h1" not in web.harvest_jobs
+    assert job["result"]["count"] == 2 and job["result"]["new_unique"] == 2
+    assert job["label"] == "OpenAlex harvest 2026-09-06 16:45"
+    runs = asyncio.run(web.harvest_runs())["runs"]
+    assert [r["id"] for r in runs] == ["h1"] and runs[0]["status"] == "done"
+    stored = db.get_records_for_harvest("h1")
+    assert sorted(r["id"] for r in stored) == ["doe2020alpha", "poe2021beta"]
+    assert all(r["source_file"] == "OpenAlex harvest 2026-09-06 16:45" for r in stored)
+
+    # A second run of the same query: everything is a duplicate of run 1.
+    job2 = dict(job, id="h2", started="2026-09-06T17:00:00", status="running", result=None)
+    web.harvest_jobs["h2"] = job2
+    web._run_harvest_job(job2)
+    assert job2["result"]["new_unique"] == 0 and job2["result"]["new_duplicates"] == 2
+    assert asyncio.run(web.ingest_stats())["duplicates"] == 2
+
+    # Download regenerates BibTeX from the stored records.
+    from src.harvest import records_to_bibtex
+    assert "Alpha Study" in records_to_bibtex(db.get_records_for_harvest("h1"))
+    resp = asyncio.run(web.harvest_run_download("h1"))
+    assert resp.status_code == 200 and resp.media_type == "application/x-bibtex"
+    assert 'filename="openalex_20260906_164500.bib"' in resp.headers["content-disposition"]
+    assert asyncio.run(web.harvest_run_download("nope")).status_code == 404
+
+    # Deleting run 2 removes its (unscreened) records; a screened record would be kept.
+    db.save_screening_result({"record_id": "doe2020alpha_2", "decision": "Include"})
+    res = asyncio.run(web.harvest_run_delete("h2"))
+    assert res["records_removed"] == 1 and res["records_kept"] == 1
+    assert asyncio.run(web.harvest_runs())["runs"][0]["id"] == "h1"
+    assert asyncio.run(web.harvest_run_delete("nope")).status_code == 404
+
+
+def test_harvest_job_failure_is_recorded(web, monkeypatch):
+    def boom(*a, **k):
+        raise web.HarvestError("SCOPUS_API_KEY is not set in .env")
+    monkeypatch.setattr(web, "harvest", boom)
+    job = {"id": "hx", "source": "scopus", "query": "q", "max_results": 5, "years": [None, None],
+           "years_label": "", "status": "running", "fetched": 0, "total": None, "error": None,
+           "result": None, "started": "2026-09-06T18:00:00"}
+    web._run_harvest_job(job)
+    run = asyncio.run(web.harvest_runs())["runs"][0]
+    assert run["status"] == "failed" and "SCOPUS_API_KEY" in run["error"]
+    assert db.get_records_for_harvest("hx") == []

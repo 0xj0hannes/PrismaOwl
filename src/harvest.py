@@ -32,6 +32,8 @@ from bibtexparser.bibdatabase import BibDatabase
 from bibtexparser.bwriter import BibTexWriter
 
 from .config import load_config
+from .models import Record
+from .utils import normalize_string
 
 HARVEST_DIR = "data/harvest"
 USER_AGENT = "PrismaOwl/1.0 (https://github.com/0xj0hannes/PrismaOwl)"
@@ -608,3 +610,48 @@ def harvest_to_file(source: str, query: str, output: Optional[str] = None,
 
 def paper_dicts(papers: List[Paper]) -> List[Dict[str, Any]]:
     return [asdict(p) for p in papers]
+
+
+def papers_to_records(papers: List[Paper], source_file: str, harvest_id: Optional[str] = None) -> List[Record]:
+    """Turn harvested papers into corpus ``Record``s directly (no BibTeX file
+    in between). Ids are the same keys ``papers_to_bibtex`` would generate, the
+    author string has the "Last, First, Last, First" shape ingestion produces,
+    and the full ``Paper`` is kept in ``raw_data`` so a .bib can be regenerated
+    later with ``records_to_bibtex``."""
+    used: set = set()
+    records = []
+    for p in papers:
+        title = " ".join((p.title or "").split())
+        if not title:
+            continue
+        records.append(Record(
+            id=make_bib_key(p, used),
+            title=title,
+            abstract=(p.abstract or "").strip(),
+            authors=", ".join(_bib_person(a) for a in p.authors if a),
+            year=str(p.year or "").strip(),
+            doi=(p.doi or "").strip() or None,
+            source_file=source_file,
+            harvest_id=harvest_id,
+            raw_data=asdict(p),
+            normalized_title=normalize_string(title),
+        ))
+    return records
+
+
+def record_to_paper(record: Dict[str, Any]) -> Paper:
+    """Rebuild a ``Paper`` from a stored record (its ``raw_data`` when it came
+    from a harvest, else the record's own fields)."""
+    raw = record.get("raw_data") or {}
+    fields = {f for f in Paper.__dataclass_fields__}
+    if "title" in raw and isinstance(raw.get("authors"), list):
+        return Paper(**{k: v for k, v in raw.items() if k in fields})
+    authors = [a.strip() for a in (record.get("authors") or "").split(",")]
+    # "Last, First, Last, First" -> ["Last, First", ...]
+    pairs = [", ".join(authors[i:i + 2]) for i in range(0, len(authors), 2)] if authors != [""] else []
+    return Paper(title=record.get("title", ""), abstract=record.get("abstract", ""), authors=pairs,
+                 year=str(record.get("year") or ""), doi=record.get("doi") or "")
+
+
+def records_to_bibtex(records: List[Dict[str, Any]], query: str = "", source: str = "") -> str:
+    return papers_to_bibtex([record_to_paper(r) for r in records], query=query, source=source)

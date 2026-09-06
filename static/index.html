@@ -132,9 +132,15 @@
                 </div>
 
                 <div class="card glass wide">
-                    <h3>4. Harvested files</h3>
+                    <h3>4. Harvest runs</h3>
+                    <p class="info-text">Each run stores its hits straight into the corpus (deduplicated against what is
+                        already there) together with the query, database, date and year range. Download a run as .bib any time.</p>
                     <div id="harvest-jobs" class="mt-10"></div>
-                    <div id="harvest-files" class="mt-10"></div>
+                    <div id="harvest-runs" class="mt-10"></div>
+                    <details class="mt-10 hidden" id="harvest-files-details">
+                        <summary class="info-text">Legacy .bib files in data/harvest/ (from before runs were stored in the database)</summary>
+                        <div id="harvest-files" class="mt-10"></div>
+                    </details>
                 </div>
                 <div class="tab-next">
                     <button class="btn-primary" data-goto="ingest">Next: Ingestion →</button>
@@ -165,14 +171,27 @@
 
                 <div class="card glass wide mb-20">
                     <div class="row-between">
-                        <h3>Harvested files</h3>
+                        <h3>Harvest runs</h3>
+                        <button class="btn-outline btn-sm" data-goto="strategy">Run a harvest →</button>
+                    </div>
+                    <p class="info-text mt-10">API harvests from the Search Strategy tab land in the corpus automatically;
+                        this is what each run contributed.</p>
+                    <div class="table-wrap mt-10"><table class="data-table" id="ingest-runs-table">
+                        <thead><tr><th>Database</th><th>Started</th><th>Years</th><th>Fetched</th><th>New unique</th><th>Duplicates</th><th>Status</th></tr></thead>
+                        <tbody></tbody>
+                    </table></div>
+                </div>
+
+                <div class="card glass wide mb-20 hidden" id="ingest-legacy-card">
+                    <div class="row-between">
+                        <h3>Legacy harvested .bib files</h3>
                         <div class="btn-row">
-                            <button class="btn-success" id="btn-ingest-all">⬇ Ingest all harvested files</button>
+                            <button class="btn-success" id="btn-ingest-all">⬇ Ingest all files</button>
                             <span class="status-inline" id="ingest-all-status"></span>
                         </div>
                     </div>
-                    <p class="info-text mt-10" id="ingest-all-info">Files saved by <em>Run harvest</em> on the Search Strategy tab
-                        (<code>data/harvest/</code>) are merged into the corpus in one deduplication pass.</p>
+                    <p class="info-text mt-10" id="ingest-all-info">Files in <code>data/harvest/</code> from before harvest runs were
+                        stored in the database. Ingest them once; new harvests no longer create files.</p>
                     <div id="ingest-all-files" class="mt-10"></div>
                 </div>
 
@@ -599,7 +618,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=11"></script>
+    <script src="/static/js/app.js?v=12"></script>
 </body>
 
 </html>

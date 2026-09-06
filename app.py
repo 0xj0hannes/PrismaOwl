@@ -11,7 +11,9 @@ from src.deduplication import deduplicate_records, split_duplicates
 from src.models import Record, ScreeningResult, Dataset
 from src.screening import screen_record, is_fatal_error, fatal_error_hint, check_screening_setup
 from src.reporting import generate_report
-from src.db import init_db, save_record, save_screening_result, get_all_records, get_all_screening_results, get_unique_records, clear_screening_results
+from src.db import (init_db, save_record, save_screening_result, get_all_records, get_all_screening_results,
+                    get_unique_records, clear_screening_results, save_harvest, get_harvests, get_harvest,
+                    get_records_for_harvest, delete_harvest)
 from src.config import (load_config, save_criteria, load_search_strategy, save_search_strategy,
                         update_env, PROVIDERS, EDITABLE_SETTINGS, SECRET_SETTINGS)
 from src import screening as screening_module
@@ -19,7 +21,9 @@ from src import llm as llm_module
 from src.llm import LLMError, ScreeningModelError, LLMClient, model_for, provider_settings, TASKS
 from src.search_strategy import (generate_strategy, normalize_strategy, build_queries,
                                  parse_year_range, format_year_range, YEAR_FILTER_SUPPORT, DATABASES)
-from src.harvest import harvest_to_file, list_sources, HarvestError, HARVEST_DIR
+from src.harvest import (harvest, harvest_to_file, list_sources, papers_to_records, records_to_bibtex,
+                         HarvestError, HARVEST_DIR)
+from src.search_strategy import DATABASES as _DBS
 from src.criteria_assist import generate_criteria, validate_criteria
 from src.chat import ask as chat_ask, select_records, SCOPES
 import json
@@ -295,31 +299,78 @@ async def start_harvest(request: Request):
            "started": datetime.now().isoformat(timespec="seconds")}
     with harvest_lock:
         harvest_jobs[job_id] = job
+    threading.Thread(target=_run_harvest_job, args=(job,), daemon=True).start()
+    return {"job": job}
 
+
+def _harvest_label(job: Dict[str, Any]) -> str:
+    """Human-readable source_file for harvested records, e.g.
+    "OpenAlex harvest 2026-09-06 16:45"."""
+    name = (_DBS.get(job["source"]) or {}).get("label") or job["source"]
+    return f"{name} harvest {job['started'].replace('T', ' ')[:16]}"
+
+
+def _run_harvest_job(job: Dict[str, Any]) -> None:
+    """Worker: run the API search, store the hits straight into the corpus
+    (global deduplication) and persist the run. Finished jobs leave the
+    in-memory dict; the database is the record of what happened."""
     def progress(n, total):
         job["fetched"], job["total"] = n, total
 
-    def run():
-        try:
-            summary = harvest_to_file(source, query, max_results=max_results, progress=progress,
-                                      years=years)
-            summary["file"] = os.path.basename(summary["file"])
-            job["result"] = summary
-            job["fetched"] = summary["count"]
-            job["status"] = "done"
-        except Exception as e:  # noqa: BLE001 - report any failure to the UI
-            job["error"] = str(e)
-            job["status"] = "failed"
-
-    threading.Thread(target=run, daemon=True).start()
-    return {"job": job}
+    try:
+        papers = harvest(job["source"], job["query"], job["max_results"], progress,
+                         years=tuple(job.get("years") or (None, None)))
+        records = papers_to_records(papers, _harvest_label(job), harvest_id=job["id"])
+        summary = _ingest_records(records)
+        summary.update(count=len(papers), with_abstract=sum(1 for p in papers if p.abstract))
+        job["result"] = summary
+        job["fetched"] = len(papers)
+        job["status"] = "done"
+    except Exception as e:  # noqa: BLE001 - report any failure to the UI
+        job["error"] = str(e)
+        job["status"] = "failed"
+    job["finished"] = datetime.now().isoformat(timespec="seconds")
+    job["label"] = _harvest_label(job)
+    save_harvest(job)
+    with harvest_lock:
+        harvest_jobs.pop(job["id"], None)
 
 
 @app.get("/api/harvest/jobs")
 async def harvest_job_list():
+    """Jobs still running (finished ones are in /api/harvest/runs)."""
     with harvest_lock:
         jobs = sorted(harvest_jobs.values(), key=lambda j: j["started"], reverse=True)
     return {"jobs": jobs}
+
+
+@app.get("/api/harvest/runs")
+async def harvest_runs():
+    """Stored harvest runs, newest first, with what each brought into the corpus."""
+    return {"runs": get_harvests()}
+
+
+@app.get("/api/harvest/runs/{run_id}/download")
+async def harvest_run_download(run_id: str):
+    run = get_harvest(run_id)
+    if not run:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    records = get_records_for_harvest(run_id)
+    bib = records_to_bibtex(records, query=run.get("query", ""), source=run.get("source", ""))
+    filename = f"{run.get('source', 'harvest')}_{run.get('started', '').replace(':', '').replace('-', '').replace('T', '_')}.bib"
+    return StreamingResponse(iter([bib]), media_type="application/x-bibtex",
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@app.delete("/api/harvest/runs/{run_id}")
+async def harvest_run_delete(run_id: str):
+    """Remove a run and the records it added; records that already have a
+    screening result are kept (detached from the run)."""
+    if is_screening_running:
+        return JSONResponse({"error": "Stop screening first."}, status_code=409)
+    if not get_harvest(run_id):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {"status": "success", **delete_harvest(run_id)}
 
 
 def _harvest_path(name: str) -> str:

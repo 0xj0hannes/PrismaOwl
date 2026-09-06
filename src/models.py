@@ -9,6 +9,7 @@ class Record(BaseModel):
     year: Optional[str] = None
     doi: Optional[str] = None
     source_file: str = ""
+    harvest_id: Optional[str] = None   # set when the record came from an API harvest run
     raw_data: Dict[str, Any] = Field(default_factory=dict)
     
     # Deduplication fields
