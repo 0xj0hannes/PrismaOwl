@@ -21,8 +21,7 @@ from src import llm as llm_module
 from src.llm import LLMError, ScreeningModelError, LLMClient, model_for, provider_settings, TASKS
 from src.search_strategy import (generate_strategy, normalize_strategy, build_queries,
                                  parse_year_range, format_year_range, YEAR_FILTER_SUPPORT, DATABASES)
-from src.harvest import (harvest, harvest_to_file, list_sources, papers_to_records, records_to_bibtex,
-                         HarvestError, HARVEST_DIR)
+from src.harvest import harvest, list_sources, papers_to_records, records_to_bibtex, HarvestError
 from src.search_strategy import DATABASES as _DBS
 from src.criteria_assist import generate_criteria, validate_criteria
 from src.chat import ask as chat_ask, select_records, SCOPES
@@ -373,37 +372,6 @@ async def harvest_run_delete(run_id: str):
     return {"status": "success", **delete_harvest(run_id)}
 
 
-def _harvest_path(name: str) -> str:
-    safe = os.path.basename(name)
-    if not safe.endswith(".bib"):
-        raise ValueError("Not a .bib file")
-    path = os.path.join(HARVEST_DIR, safe)
-    if not os.path.isfile(path):
-        raise FileNotFoundError(safe)
-    return path
-
-
-@app.get("/api/harvest/files")
-async def harvest_files():
-    os.makedirs(HARVEST_DIR, exist_ok=True)
-    files = []
-    for name in sorted(os.listdir(HARVEST_DIR), reverse=True):
-        if name.endswith(".bib"):
-            path = os.path.join(HARVEST_DIR, name)
-            files.append({"name": name, "size": os.path.getsize(path),
-                          "modified": datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec="seconds")})
-    return {"files": files}
-
-
-@app.get("/api/harvest/download/{name}")
-async def harvest_download(name: str):
-    try:
-        path = _harvest_path(name)
-    except (ValueError, FileNotFoundError):
-        return JSONResponse({"error": "Not found"}, status_code=404)
-    return FileResponse(path, media_type="application/x-bibtex", filename=os.path.basename(path))
-
-
 def _ingest_records(new_records: List[Record]) -> Dict[str, Any]:
     """Merge ``new_records`` into the SQLite corpus with global deduplication.
 
@@ -443,44 +411,6 @@ def _ingest_records(new_records: List[Record]) -> Dict[str, Any]:
             "total_records_db": len(canonical) + len(duplicates)}
 
 
-@app.post("/api/harvest/ingest/{name}")
-async def harvest_ingest(name: str):
-    """Ingest a harvested .bib straight into the SQLite corpus (same
-    deduplication path as /api/ingest)."""
-    try:
-        path = _harvest_path(name)
-    except (ValueError, FileNotFoundError):
-        return JSONResponse({"error": "Not found"}, status_code=404)
-    new_records = load_bibtex(path)
-    if not new_records:
-        return JSONResponse({"error": "No records in file."}, status_code=400)
-    return _ingest_records(new_records)
-
-
-@app.post("/api/harvest/ingest-all")
-async def harvest_ingest_all():
-    """Ingest every harvested .bib file in one deduplication pass."""
-    os.makedirs(HARVEST_DIR, exist_ok=True)
-    names = sorted(n for n in os.listdir(HARVEST_DIR) if n.endswith(".bib"))
-    if not names:
-        return JSONResponse({"error": "No harvested .bib files found."}, status_code=400)
-    new_records, per_file = [], []
-    for name in names:
-        try:
-            loaded = load_bibtex(os.path.join(HARVEST_DIR, name))
-        except Exception as e:  # noqa: BLE001 - one broken file must not block the rest
-            per_file.append({"file": name, "records": 0, "error": str(e)})
-            continue
-        per_file.append({"file": name, "records": len(loaded)})
-        new_records.extend(loaded)
-    if not new_records:
-        return JSONResponse({"error": "No records found in the harvested files.", "files": per_file},
-                            status_code=400)
-    summary = _ingest_records(new_records)
-    summary["files"] = per_file
-    return summary
-
-
 @app.get("/api/ingest/stats")
 async def ingest_stats(limit: int = 500):
     """Corpus dashboard: identified / unique / duplicate counts, per-source
@@ -508,47 +438,6 @@ async def ingest_stats(limit: int = 500):
             "sources": [{"source_file": k, **v} for k, v in sorted(per_source.items())],
             "duplicate_list": dup_rows, "duplicate_list_truncated": len(dups) > limit}
 
-
-@app.delete("/api/harvest/files/{name}")
-async def harvest_delete(name: str):
-    try:
-        path = _harvest_path(name)
-    except (ValueError, FileNotFoundError):
-        return JSONResponse({"error": "Not found"}, status_code=404)
-    os.unlink(path)
-    return {"status": "deleted"}
-
-
-# ---------------------------------------------------------------------------
-# Chat over screened results
-# ---------------------------------------------------------------------------
-
-@app.get("/api/chat/scope")
-async def chat_scope_counts():
-    records = get_unique_records()
-    results = get_all_screening_results()
-    return {"scopes": {scope: len(select_records(records, results, scope)) for scope in SCOPES}}
-
-
-@app.post("/api/chat")
-async def chat_endpoint(request: Request):
-    data = await request.json()
-    messages = data.get("messages") or []
-    scope = data.get("scope", "included")
-    if scope not in SCOPES:
-        return JSONResponse({"error": f"Unknown scope '{scope}'"}, status_code=400)
-    if not messages or messages[-1].get("role") != "user":
-        return JSONResponse({"error": "Send at least one user message."}, status_code=400)
-    records = get_unique_records()
-    results = get_all_screening_results()
-    criteria = load_config().get("CRITERIA", {})
-    try:
-        out = await asyncio.to_thread(chat_ask, messages, records, results, criteria, scope)
-    except LLMError as e:
-        return JSONResponse({"error": e.user_message}, status_code=400)
-    return out
-
-from typing import List, Any, Dict
 
 @app.post("/api/ingest")
 async def ingest_file(files: List[UploadFile] = File(...)):

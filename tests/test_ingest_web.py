@@ -16,7 +16,6 @@ def web(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "t.db"))
     db.init_db()
     import app as web_app
-    monkeypatch.setattr(web_app, "HARVEST_DIR", str(tmp_path / "harvest"))
     return web_app
 
 
@@ -59,24 +58,6 @@ def test_ingest_records_stores_duplicates_and_stats(web):
     r3 = _ingest(web, [make_record(id="a3", doi="10.1/a", source_file="s3.bib")])
     assert r3["new_duplicates"] == 1 and r3["total_unique_db"] == 3
     assert db.get_all_records() and all(r["id"] != "a" or not r["is_duplicate"] for r in db.get_all_records())
-
-
-def test_ingest_all_reads_every_harvested_file(web, tmp_path):
-    hdir = tmp_path / "harvest"
-    hdir.mkdir()
-    (hdir / "openalex_1.bib").write_text(
-        '@article{k1, title={Alpha Study}, author={Doe, Jane}, year={2020}, doi={10.1/alpha}}\n'
-        '@article{k2, title={Beta Study}, author={Roe, Ann}, year={2021}}\n')
-    (hdir / "arxiv_2.bib").write_text(
-        '@article{k3, title={Alpha Study}, author={Doe, Jane}, year={2020}, doi={10.1/ALPHA}}\n')
-    (hdir / "notes.txt").write_text("ignored")
-    res = asyncio.run(web.harvest_ingest_all())
-    assert res["uploaded"] == 3 and res["new_unique"] == 2 and res["new_duplicates"] == 1
-    assert [f["file"] for f in res["files"]] == ["arxiv_2.bib", "openalex_1.bib"]
-    assert sum(f["records"] for f in res["files"]) == 3
-
-    (hdir / "openalex_1.bib").unlink(); (hdir / "arxiv_2.bib").unlink()
-    assert asyncio.run(web.harvest_ingest_all()).status_code == 400
 
 
 def _ingest(web, records):

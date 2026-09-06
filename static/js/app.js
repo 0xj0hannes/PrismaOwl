@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tabId === 'screen') updateScreenStats();
         if (tabId === 'ingest') loadIngestStats();
         if (tabId === 'review') loadReviews();
-        if (tabId === 'strategy') { loadHarvestSources().then(() => { loadHarvestRuns(); loadHarvestFiles(); pollHarvestJobs(); }); }
+        if (tabId === 'strategy') { loadHarvestSources().then(() => { loadHarvestRuns(); pollHarvestJobs(); }); }
         if (tabId === 'criteria') { if (!criteriaDirty) loadCriteriaEditor(); }
         if (tabId === 'chat') loadChatScopes();
     }
@@ -118,31 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td class="num">${res.new_unique ?? ''}</td><td class="num">${res.new_duplicates ?? ''}</td><td>${status}</td></tr>`;
             }).join('') || '<tr><td colspan="7" class="info-text">No harvest runs yet. Run a query on the Search Strategy tab.</td></tr>';
         } catch (_) { /* ignore */ }
-        try {
-            const f = await api('/api/harvest/files');
-            $('ingest-legacy-card').classList.toggle('hidden', !f.files.length);
-            const box = $('ingest-all-files');
-            $('btn-ingest-all').disabled = !f.files.length;
-            box.innerHTML = f.files.map(x => `<div class="ingest-file-row"><span>${esc(x.name)}</span><span class="meta">${(x.size / 1024).toFixed(1)} KB · ${esc(x.modified.replace('T', ' '))}</span></div>`).join('');
-        } catch (_) { /* ignore */ }
     }
-
-    $('btn-ingest-all').addEventListener('click', async () => {
-        const btn = $('btn-ingest-all');
-        const st = $('ingest-all-status');
-        btn.disabled = true;
-        setStatus(st, 'Ingesting all harvested files…');
-        try {
-            const r = await postJSON('/api/harvest/ingest-all', {});
-            const failed = r.files.filter(x => x.error);
-            setStatus(st, `Read ${r.uploaded} records from ${r.files.length} file(s): ${r.new_unique} new unique, ${r.new_duplicates} duplicates`
-                + (r.already_ingested ? `, ${r.already_ingested} already in the corpus` : '') + `. Corpus: ${r.total_unique_db} unique.`
-                + (failed.length ? ` ${failed.length} file(s) could not be parsed.` : ''), failed.length ? 'error' : 'success');
-            loadIngestStats();
-        } catch (e) {
-            setStatus(st, 'Error: ' + e.message, 'error');
-        } finally { btn.disabled = false; }
-    });
 
     // ------------------------------------------------------------------
     // Search Strategy
@@ -403,43 +379,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 box.appendChild(div);
             });
         } catch (e) { box.innerHTML = '<p class="error">Failed to list harvest runs.</p>'; }
-    }
-
-    async function loadHarvestFiles() {
-        const box = $('harvest-files');
-        try {
-            const data = await api('/api/harvest/files');
-            $('harvest-files-details').classList.toggle('hidden', !data.files.length);
-            if (!data.files.length) { box.innerHTML = ''; return; }
-            box.innerHTML = '';
-            data.files.forEach(f => {
-                const div = document.createElement('div');
-                div.className = 'harvest-file';
-                div.innerHTML = `<div><strong>${esc(f.name)}</strong><br><span class="meta">${(f.size / 1024).toFixed(1)} KB · ${esc(f.modified.replace('T', ' '))}</span></div>
-                    <div class="btn-row">
-                        <a class="btn-outline btn-sm" href="/api/harvest/download/${encodeURIComponent(f.name)}" style="text-decoration:none">⬇ Download .bib</a>
-                        <button class="btn-success btn-sm f-ingest">Ingest into corpus</button>
-                        <button class="btn-outline btn-sm f-delete">✕</button>
-                        <span class="status-inline f-status"></span>
-                    </div>`;
-                div.querySelector('.f-ingest').addEventListener('click', async (e) => {
-                    e.target.disabled = true;
-                    const st = div.querySelector('.f-status');
-                    setStatus(st, 'Ingesting…');
-                    try {
-                        const r = await postJSON(`/api/harvest/ingest/${encodeURIComponent(f.name)}`, {});
-                        setStatus(st, `Read ${r.uploaded}: ${r.new_unique} new unique, ${r.new_duplicates} duplicates (corpus now ${r.total_unique_db} unique)`, 'success');
-                    } catch (err) { setStatus(st, 'Error: ' + err.message, 'error'); }
-                    finally { e.target.disabled = false; }
-                });
-                div.querySelector('.f-delete').addEventListener('click', async () => {
-                    if (!confirm(`Delete ${f.name}?`)) return;
-                    try { await api(`/api/harvest/files/${encodeURIComponent(f.name)}`, { method: 'DELETE' }); loadHarvestFiles(); }
-                    catch (err) { alert(err.message); }
-                });
-                box.appendChild(div);
-            });
-        } catch (e) { box.innerHTML = '<p class="error">Failed to list harvested files.</p>'; }
     }
 
     // ------------------------------------------------------------------
@@ -1150,6 +1089,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     loadCriteria().then(() => { updateScreenStats(); });
     loadLLMInfo();
-    loadHarvestSources().then(loadStrategy).then(() => { loadHarvestRuns(); loadHarvestFiles(); pollHarvestJobs(); });
+    loadHarvestSources().then(loadStrategy).then(() => { loadHarvestRuns(); pollHarvestJobs(); });
     loadCriteriaEditor();
 });
