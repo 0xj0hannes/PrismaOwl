@@ -60,7 +60,7 @@ SECRET_SETTINGS = ("ORCA_API_KEY", "GEMINI_API_KEY", "SEMANTIC_SCHOLAR_API_KEY",
                    "SCOPUS_API_KEY", "SCOPUS_INST_TOKEN", "IEEE_API_KEY")
 EDITABLE_SETTINGS = ("LLM_PROVIDER", "ORCA_BASE_URL", "GEMINI_BASE_URL",
                      "MODEL_NAME", "MODEL_SCREENING", "MODEL_QUERY", "MODEL_CRITERIA", "MODEL_CHAT",
-                     "MAX_RETRIES", "LLM_TIMEOUT", "OPENALEX_EMAIL") + SECRET_SETTINGS
+                     "MAX_RETRIES", "LLM_TIMEOUT", "SCREENING_STRICTNESS", "OPENALEX_EMAIL") + SECRET_SETTINGS
 
 
 def _env_quote(value: str) -> str:
@@ -165,6 +165,8 @@ def load_config():
         "MODEL_CHAT": os.getenv("MODEL_CHAT", ""),
         "MAX_RETRIES": int(os.getenv("MAX_RETRIES") or "3"),
         "LLM_TIMEOUT": float(os.getenv("LLM_TIMEOUT") or "300"),
+        # How strictly Include / Exclude / Maybe are decided: strict | balanced | lenient
+        "SCREENING_STRICTNESS": (os.getenv("SCREENING_STRICTNESS") or "strict").strip().lower(),
         "CRITERIA": load_criteria(),
         # --- Optional credentials for the literature-database harvesters
         # (src/harvest.py). OpenAlex, arXiv and Crossref work without any key.

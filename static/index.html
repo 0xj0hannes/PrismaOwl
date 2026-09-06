@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PrismaOwl</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=5">
+    <link rel="stylesheet" href="/static/css/style.css?v=17">
     <script>
         // Apply the saved theme before first paint to avoid a flash of the wrong theme.
         (function () {
@@ -47,9 +47,6 @@
                 <li data-tab="report">
                     <span class="icon">📊</span> Reports
                 </li>
-                <li data-tab="chat">
-                    <span class="icon">💬</span> Chat
-                </li>
             </ul>
             <div class="sidebar-footer">
                 <span id="llm-model-label" title="Configured in .env (MODEL_NAME)">LLM: …</span>
@@ -65,7 +62,7 @@
             <!-- Search Strategy Tab -->
             <section id="strategy" class="tab-pane active">
                 <div class="header">
-                    <h2>Search Strategy</h2>
+                    <h2>Search Strategy <button class="help-btn" type="button" data-help="strategy" aria-label="Help: what is this and how does it relate to PRISMA?" title="What is this?">?</button></h2>
                     <p>Let the LLM draft database queries from your research question, edit them, then harvest results
                         straight from the databases as BibTeX.</p>
                 </div>
@@ -77,9 +74,19 @@
                     <label class="field-label mt-10">Feedback for refinement (optional)</label>
                     <textarea id="strategy-feedback" rows="2"
                         placeholder="e.g. Add terms for nurses and physicians; restrict to 2010 onwards; drop the 'meditation apps' concept"></textarea>
+                    <details class="mt-10">
+                        <summary class="info-text">Advanced: rationale &amp; limitations (filled in by the LLM, editable) <button class="help-btn" type="button" data-help="rationale" aria-label="Help: what is this and how does it relate to PRISMA?" title="What is this?">?</button></summary>
+                        <label class="field-label mt-10">Rationale</label>
+                        <textarea id="strategy-rationale" rows="3"
+                            placeholder="Why these concepts and terms were chosen (for your methods section)"></textarea>
+                        <label class="field-label mt-10">Limitations</label>
+                        <textarea id="strategy-limitations" rows="2"
+                            placeholder="Known gaps of the search (for your methods section)"></textarea>
+                    </details>
                     <div class="btn-row mt-10">
                         <button class="btn-primary" id="btn-strategy-generate">✨ Generate with AI</button>
-                        <button class="btn-outline" id="btn-strategy-refine">↻ Refine current with AI</button>
+                        <button class="btn-link hidden" id="btn-strategy-restart" type="button"
+                            title="Discard the current concepts and queries and generate again from the research question only">Start over from the research question</button>
                         <span class="status-inline" id="strategy-ai-status"></span>
                     </div>
                 </div>
@@ -93,66 +100,122 @@
                     <div id="concepts-container" class="mt-10"></div>
                     <div class="mt-10">
                         <label class="field-label">Scope notes</label>
-                        <textarea id="strategy-scope" rows="2" placeholder="Date range, languages, document types…"></textarea>
+                        <textarea id="strategy-scope" rows="2" placeholder="e.g. 2010 onwards, English, peer-reviewed journals and conferences. A year range here becomes a date filter in the queries and the API harvests."></textarea>
                     </div>
                 </div>
 
                 <div class="card glass wide mb-20">
                     <div class="row-between">
-                        <h3>3. Database queries</h3>
+                        <h3>3. Database queries <button class="help-btn" type="button" data-help="harvest" aria-label="Help: what is this and how does it relate to PRISMA?" title="What is this?">?</button></h3>
                         <div class="btn-row">
                             <label class="field-label" for="harvest-max">Max records per run</label>
                             <input type="number" id="harvest-max" value="500" min="1" max="5000" class="input-sm">
                         </div>
                     </div>
-                    <p class="info-text">Edit freely. <strong>Run</strong> harvests through the database's official API and
+                    <p class="info-text">Edit freely, or press <strong>Rebuild from concepts</strong> to regenerate every query
+                        from the concept blocks (AND between concepts, OR inside) without an LLM call; a year range in the
+                        scope notes is applied too. <strong>Run</strong> harvests through the database's official API and
                         saves a .bib file below; databases without an open API show a <em>manual export</em> hint.</p>
-                    <div id="queries-container" class="mt-10"></div>
-                    <details class="mt-10">
-                        <summary class="info-text">Rationale &amp; limitations (from the LLM)</summary>
-                        <label class="field-label mt-10">Rationale</label>
-                        <textarea id="strategy-rationale" rows="3"></textarea>
-                        <label class="field-label mt-10">Limitations</label>
-                        <textarea id="strategy-limitations" rows="2"></textarea>
-                    </details>
-                    <div class="btn-row mt-20">
-                        <button class="btn-success" id="btn-strategy-save">💾 Save strategy</button>
-                        <button class="btn-outline" id="btn-strategy-reload">Discard changes</button>
-                        <span class="status-inline" id="strategy-save-status"></span>
+                    <div class="btn-row mt-10">
+                        <button class="btn-outline btn-sm" id="btn-strategy-build"
+                            title="Compose every database query from the concept blocks above, without the LLM">⟳ Rebuild from concepts</button>
+                        <span class="status-inline" id="strategy-build-status"></span>
                     </div>
+                    <div id="queries-container" class="mt-10"></div>
+                    <p class="status-inline mt-20" id="strategy-save-status" title="Every change is saved automatically to search_strategy.json, which the CLI reads too."></p>
                 </div>
 
                 <div class="card glass wide">
-                    <h3>4. Harvested files</h3>
+                    <h3>4. Harvest runs</h3>
+                    <p class="info-text">Each run stores its hits straight into the corpus (deduplicated against what is
+                        already there) together with the query, database, date and year range. Download a run as .bib any time.</p>
                     <div id="harvest-jobs" class="mt-10"></div>
-                    <div id="harvest-files" class="mt-10"></div>
+                    <div id="harvest-runs" class="mt-10"></div>
+                </div>
+                <div class="tab-next">
+                    <button class="btn-primary" data-goto="ingest">Next: Ingestion →</button>
                 </div>
             </section>
 
             <!-- Ingestion Tab -->
             <section id="ingest" class="tab-pane">
                 <div class="header">
-                    <h2>Data Ingestion</h2>
+                    <h2>Data Ingestion <button class="help-btn" type="button" data-help="ingest" aria-label="Help: what is this and how does it relate to PRISMA?" title="What is this?">?</button></h2>
                     <p>Upload your BibTeX files for automatic deduplication and parsing.</p>
                 </div>
-                <div class="card glass">
-                    <div class="upload-zone" id="upload-zone">
+                <div class="card glass wide mb-20">
+                    <div class="screen-stats ingest-stats">
+                        <div class="stat-box"><h3 id="ingest-stat-total">0</h3><span>Records identified</span></div>
+                        <div class="stat-box"><h3 id="ingest-stat-unique">0</h3><span>Unique (to screen)</span></div>
+                        <div class="stat-box"><h3 id="ingest-stat-dups">0</h3><span>Duplicates removed</span></div>
+                        <div class="stat-box"><h3 id="ingest-stat-sources">0</h3><span>Source files</span></div>
+                    </div>
+                    <div class="row-between mt-20">
+                        <details id="ingest-sources-details">
+                            <summary class="info-text">Per source file</summary>
+                        <div class="table-wrap mt-10"><table class="data-table" id="ingest-sources-table">
+                            <thead><tr><th>Source file</th><th>Records</th><th>Duplicates</th><th>Unique</th></tr></thead>
+                            <tbody></tbody>
+                        </table></div>
+                        </details>
+                        <div class="btn-row">
+                            <button class="btn-danger btn-sm" id="btn-flush-corpus"
+                                title="Delete every ingested record, harvest run and screening result">🗑 Flush all ingested data</button>
+                            <span class="status-inline" id="flush-status"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card glass wide mb-20">
+                    <div class="row-between">
+                        <h3>Harvest runs</h3>
+                        <button class="btn-outline btn-sm" data-goto="strategy">Run a harvest →</button>
+                    </div>
+                    <p class="info-text mt-10">API harvests from the Search Strategy tab land in the corpus automatically;
+                        this is what each run contributed.</p>
+                    <div class="table-wrap mt-10"><table class="data-table" id="ingest-runs-table">
+                        <thead><tr><th>Database</th><th>Started</th><th>Years</th><th>Fetched</th><th>New unique</th><th>Duplicates</th><th>Status</th></tr></thead>
+                        <tbody></tbody>
+                    </table></div>
+                </div>
+
+                <div class="card glass wide mb-20">
+                    <h3>Upload BibTeX exports</h3>
+                    <div class="upload-zone mt-10" id="upload-zone">
                         <span class="upload-icon">📁</span>
                         <p>Drag & Drop your <strong>.bib</strong> files here, or click to browse</p>
                         <input type="file" id="bib-upload" accept=".bib" multiple hidden>
                     </div>
                     <div class="status-msg" id="upload-status"></div>
-                    <p class="info-text mt-10">Files harvested on the <strong>Search Strategy</strong> tab can be ingested
-                        directly from there.</p>
+                </div>
+
+                <div class="card glass wide">
+                    <details id="ingest-dups-details">
+                        <summary class="row-between summary-row">
+                            <h3>Duplicate records <span class="tag" id="ingest-dups-tag">0</span></h3>
+                            <span class="info-text">Matched by DOI, or by normalised title + year + first author. Kept for the audit trail; never screened. Click to show.</span>
+                        </summary>
+                        <div class="table-wrap mt-10"><table class="data-table" id="ingest-dups-table">
+                            <thead><tr><th>Duplicate</th><th>Source</th><th>Reason</th><th>Kept record</th></tr></thead>
+                            <tbody></tbody>
+                        </table></div>
+                        <div class="row-between mt-10">
+                            <span class="info-text" id="ingest-dups-more"></span>
+                            <nav class="pager" id="dups-pager" aria-label="Duplicate records pages"></nav>
+                        </div>
+                    </details>
+                </div>
+                <div class="tab-next">
+                    <button class="btn-primary" data-goto="criteria">Next: Criteria →</button>
                 </div>
             </section>
 
             <!-- Criteria Tab -->
             <section id="criteria" class="tab-pane">
                 <div class="header">
-                    <h2>Inclusion Criteria</h2>
-                    <p>Draft criteria with the LLM, edit them, and save. They drive the screening prompt, the review
-                        buttons and the CSV columns.</p>
+                    <h2>Inclusion Criteria <button class="help-btn" type="button" data-help="criteria" aria-label="Help: what is this and how does it relate to PRISMA?" title="What is this?">?</button></h2>
+                    <p>Draft criteria with the LLM and edit them; changes save automatically. They drive the screening
+                        prompt, the review buttons and the CSV columns.</p>
                 </div>
 
                 <div class="card glass wide mb-20">
@@ -172,34 +235,35 @@
                         <button class="btn-outline" id="btn-criteria-refine">↻ Refine current</button>
                         <span class="status-inline" id="criteria-ai-status"></span>
                     </div>
-                    <p class="info-text mt-10">Proposals land in the editor below as an unsaved draft. Nothing changes until
-                        you press <strong>Save</strong>.</p>
+                    <p class="info-text mt-10">Proposals replace the editor below and are saved right away; edit anything
+                        afterwards.</p>
                 </div>
 
                 <div class="card glass wide">
                     <div class="row-between">
-                        <h3>Editor <span class="badge badge-draft hidden" id="criteria-draft-badge">unsaved draft</span></h3>
+                        <h3>Editor</h3>
                         <button class="btn-outline btn-sm" id="btn-add-criterion">+ Add criterion</button>
                     </div>
                     <div id="criteria-editor" class="mt-10"></div>
-                    <div class="btn-row mt-20">
-                        <button class="btn-success" id="btn-criteria-save">💾 Save criteria</button>
-                        <button class="btn-outline" id="btn-criteria-revert">Revert to saved</button>
-                        <span class="status-inline" id="criteria-save-status"></span>
-                    </div>
-                    <div class="warn-box mt-20">
-                        <p><strong>Changing criteria after screening?</strong> Existing results were judged against the
-                            old criteria. Reset them so the corpus is re-screened on the next run.</p>
+                    <p class="status-inline mt-20" id="criteria-save-status" title="Every change is saved automatically to criteria.json, which the CLI reads too. Saving waits while a screening batch is running."></p>
+                    <div class="warn-box mt-20 hidden" id="criteria-reset-box">
+                        <button class="box-close" id="btn-reset-box-close" type="button" aria-label="Dismiss this notice" title="Dismiss for this session">×</button>
+                        <p><strong>Changing criteria after screening?</strong> <span id="criteria-reset-count"></span>
+                            were judged against the criteria in force at the time. Reset them so the corpus is re-screened
+                            on the next run.</p>
                         <button class="btn-danger btn-sm mt-10" id="btn-reset-results">Reset all screening results</button>
-                        <span class="status-inline" id="reset-status"></span>
                     </div>
+                    <p class="status-inline mt-10" id="reset-status"></p>
+                </div>
+                <div class="tab-next">
+                    <button class="btn-primary" data-goto="screen">Next: Screening →</button>
                 </div>
             </section>
 
             <!-- Screening Tab -->
             <section id="screen" class="tab-pane">
                 <div class="header">
-                    <h2>AI Screening</h2>
+                    <h2>AI Screening <button class="help-btn" type="button" data-help="screening" aria-label="Help: what is this and how does it relate to PRISMA?" title="What is this?">?</button></h2>
                     <p>Leverage LLM to process abstracts against inclusion criteria.</p>
                 </div>
 
@@ -230,7 +294,18 @@
                         <code id="screen-model">…</code>
                     </p>
                     <p id="screen-model-warning" class="screen-model-warning hidden"></p>
-                    <button class="btn-primary mt-20" id="btn-start-screen">Start Screening</button>
+                    <div class="mt-20">
+                        <span class="field-label">Decision strictness (how readily a paper becomes <em>Maybe</em>)</span>
+                        <div class="segmented" id="screen-strictness" role="radiogroup" aria-label="Screening strictness"></div>
+                        <p class="settings-help" id="screen-strictness-help"></p>
+                        <span class="status-inline" id="screen-strictness-status"></span>
+                    </div>
+                    <div class="btn-row mt-20">
+                        <button class="btn-primary" id="btn-start-screen">Start Screening</button>
+                        <button class="btn-danger" id="btn-screen-reset"
+                            title="Delete every screening result, including human review decisions, so the corpus is screened again from scratch">🗑 Reset screening results</button>
+                        <span class="status-inline" id="screen-reset-status"></span>
+                    </div>
                     <div class="progress-container mt-20 hidden" id="screen-progress">
                         <div style="display: flex; gap: 12px; margin-bottom: 8px; align-items: center;">
                             <button class="btn-danger" id="btn-stop-screen"
@@ -242,64 +317,141 @@
                         </div>
                     </div>
                 </div>
+                <div class="tab-next">
+                    <button class="btn-primary" data-goto="review">Next: Review →</button>
+                </div>
             </section>
 
             <!-- Review Tab -->
             <section id="review" class="tab-pane">
                 <div class="header">
-                    <h2>Human-in-the-loop Review</h2>
-                    <p>Review ambiguous cases ("Maybe").</p>
+                    <h2>Human-in-the-loop Review <button class="help-btn" type="button" data-help="review" aria-label="Help: what is this and how does it relate to PRISMA?" title="What is this?">?</button></h2>
+                    <p>Decide the ambiguous ("Maybe") cases. The assistant on the right has read the corpus and can weigh
+                        any card against the criteria; the decision stays yours.</p>
                 </div>
-                <div class="review-area" id="review-area">
-                    <div class="glass no-records-msg">
-                        <p>Loading records for review...</p>
+                <div class="review-layout">
+                    <div class="review-area" id="review-area">
+                        <div class="glass no-records-msg">
+                            <p>Loading records for review...</p>
+                        </div>
                     </div>
+                    <aside class="review-chat">
+                <div class="card glass chat-card">
+                    <div class="row-between chat-toolbar">
+                        <h3>Ask the assistant <button class="help-btn" type="button" data-help="chat" aria-label="Help: what is this and how does it relate to PRISMA?" title="What is this?">?</button></h3>
+                        <button class="btn-outline btn-sm" id="btn-chat-clear">Clear</button>
+                    </div>
+                    <div class="btn-row mt-10">
+                        <label class="field-label" for="chat-scope">Knows</label>
+                        <select id="chat-scope" class="input-sm">
+                            <option value="included">Included</option>
+                            <option value="included_maybe" selected>Included + Maybe</option>
+                            <option value="all_screened">All screened</option>
+                        </select>
+                        <span class="info-text" id="chat-scope-count"></span>
+                    </div>
+                    <div class="chat-focus hidden" id="chat-focus">
+                        <span class="meta">Discussing</span> <strong id="chat-focus-title"></strong>
+                        <button class="box-close" id="btn-chat-focus-clear" type="button" aria-label="Stop discussing this record" title="Back to the whole corpus">×</button>
+                    </div>
+                    <div class="chat-window" id="chat-window">
+                        <div class="chat-msg assistant">
+                            <div class="bubble">Press <strong>Ask about this record</strong> on a card and I will weigh it
+                                against each criterion, or ask me anything about the corpus: themes, methods, gaps,
+                                which studies discuss a construct. Answers cite record IDs.</div>
+                        </div>
+                    </div>
+                    <form class="chat-input-row" id="chat-form">
+                        <textarea id="chat-input" rows="2" placeholder="e.g. Does this paper report empirical data? Which included papers use a similar method?"></textarea>
+                        <button type="submit" class="btn-primary" id="btn-chat-send">Send</button>
+                    </form>
+                </div>
+                    </aside>
+                </div>
+                <div class="tab-next">
+                    <button class="btn-primary" data-goto="report">Next: Reports →</button>
                 </div>
             </section>
 
             <!-- Report Tab -->
             <section id="report" class="tab-pane">
                 <div class="header">
-                    <h2>PRISMA Reporting</h2>
-                    <p>Generate analytical statistics and export data.</p>
+                    <h2>PRISMA Reporting <button class="help-btn" type="button" data-help="report" aria-label="Help: what is this and how does it relate to PRISMA?" title="What is this?">?</button></h2>
+                    <p>Where every record ended up, as a PRISMA 2020 flow and as a table. Export the full detail as CSV.</p>
                 </div>
-                <div class="card glass flex-center">
-                    <button class="btn-primary" id="btn-download-report">Download CSV Report</button>
-                    <p class="mt-10 info-text">This will create a final statistical report for your review analysis.</p>
+
+                <div class="card glass wide mb-20">
+                    <div class="row-between">
+                        <h3>Overview</h3>
+                        <div class="btn-row">
+                            <button class="btn-outline btn-sm" id="btn-report-refresh">↻ Refresh</button>
+                            <button class="btn-primary" id="btn-download-report">⬇ Download CSV report</button>
+                        </div>
+                    </div>
+                    <p class="info-text mt-10" id="report-generated"></p>
+                    <div class="screen-stats report-stats mt-10">
+                        <div class="stat-box"><h3 id="rs-identified">0</h3><span>Identified</span></div>
+                        <div class="stat-box"><h3 id="rs-duplicates">0</h3><span>Duplicates removed</span></div>
+                        <div class="stat-box"><h3 id="rs-screened">0</h3><span>Screened</span></div>
+                        <div class="stat-box"><h3 id="rs-included">0</h3><span>Included</span></div>
+                        <div class="stat-box"><h3 id="rs-excluded">0</h3><span>Excluded</span></div>
+                        <div class="stat-box"><h3 id="rs-maybe">0</h3><span>Maybe (to review)</span></div>
+                        <div class="stat-box"><h3 id="rs-pending">0</h3><span>Not yet screened</span></div>
+                        <div class="stat-box"><h3 id="rs-human">0</h3><span>Human reviewed</span></div>
+                    </div>
+                </div>
+
+                <div class="card glass wide mb-20">
+                    <h3>PRISMA 2020 flow</h3>
+                    <p class="info-text">Identification and title/abstract screening as performed here. The greyed steps happen outside this tool and are left for you to complete in the diagram.</p>
+                    <div class="prisma-flow mt-20" id="prisma-flow"></div>
+                </div>
+
+                <div class="mb-20">
+                    <div class="card glass wide mb-20">
+                        <h3>By source</h3>
+                        <div class="table-wrap mt-10"><table class="data-table" id="report-sources">
+                            <thead><tr><th>Source</th><th>Identified</th><th>Dup.</th><th>Incl.</th><th>Excl.</th><th>Maybe</th><th>Pending</th></tr></thead>
+                            <tbody></tbody>
+                        </table></div>
+                    </div>
+                    <div class="card glass wide">
+                        <h3>Why records were not included</h3>
+                        <div class="table-wrap mt-10"><table class="data-table" id="report-unmet">
+                            <thead><tr><th>Unmet criteria</th><th>Records</th></tr></thead>
+                            <tbody></tbody>
+                        </table></div>
+                        <h3 class="mt-20">Method</h3>
+                        <div id="report-method" class="info-text mt-10"></div>
+                    </div>
+                </div>
+
+                <div class="card glass wide">
+                    <div class="row-between">
+                        <h3>All records <span class="tag" id="report-results-total">0</span></h3>
+                        <div class="btn-row">
+                            <select id="report-filter" class="input-sm">
+                                <option value="">All decisions</option>
+                                <option value="Include">Include</option>
+                                <option value="Maybe">Maybe</option>
+                                <option value="Exclude">Exclude</option>
+                                <option value="Not screened">Not screened</option>
+                                <option value="Failed">Failed</option>
+                            </select>
+                            <input type="text" id="report-search" class="input-md" placeholder="Search title, author, DOI…">
+                        </div>
+                    </div>
+                    <div class="table-wrap mt-10"><table class="data-table" id="report-results">
+                        <thead><tr><th>Record</th><th>Source</th><th>Decision</th><th>Unmet</th><th>Criterion scores</th><th>Model · strictness</th></tr></thead>
+                        <tbody></tbody>
+                    </table></div>
+                    <div class="row-between mt-10">
+                        <span class="info-text" id="report-results-range"></span>
+                        <nav class="pager" id="report-pager" aria-label="Result pages"></nav>
+                    </div>
                 </div>
             </section>
 
-            <!-- Chat Tab -->
-            <section id="chat" class="tab-pane">
-                <div class="header">
-                    <h2>Ask the corpus</h2>
-                    <p>Chat with an LLM that has read every included record. Answers cite record IDs.</p>
-                </div>
-                <div class="card glass wide chat-card">
-                    <div class="row-between chat-toolbar">
-                        <div class="btn-row">
-                            <label class="field-label" for="chat-scope">Scope</label>
-                            <select id="chat-scope" class="input-sm">
-                                <option value="included">Included</option>
-                                <option value="included_maybe">Included + Maybe</option>
-                                <option value="all_screened">All screened</option>
-                            </select>
-                            <span class="info-text" id="chat-scope-count"></span>
-                        </div>
-                        <button class="btn-outline btn-sm" id="btn-chat-clear">Clear conversation</button>
-                    </div>
-                    <div class="chat-window" id="chat-window">
-                        <div class="chat-msg assistant">
-                            <div class="bubble">Ask me anything about the included papers: themes, methods, gaps,
-                                which studies discuss a specific construct, and so on.</div>
-                        </div>
-                    </div>
-                    <form class="chat-input-row" id="chat-form">
-                        <textarea id="chat-input" rows="2" placeholder="e.g. Which papers report a randomised controlled trial? Summarise the main outcomes measured."></textarea>
-                        <button type="submit" class="btn-primary" id="btn-chat-send">Send</button>
-                    </form>
-                </div>
-            </section>
         </main>
     </div>
 
@@ -318,6 +470,7 @@
             <div class="review-actions">
                 <button class="btn-success btn-include">Include</button>
                 <button class="btn-danger btn-exclude-init">Exclude</button>
+                <button class="btn-outline btn-ask" title="Ask the assistant to weigh this record against each criterion">💬 Ask about this record</button>
             </div>
             <div class="exclude-options hidden mt-10">
                 <p style="margin-bottom: 8px; font-size: 0.9rem;">Select Unmet Criteria:</p>
@@ -355,6 +508,22 @@
         </div>
     </template>
 
+
+
+    <!-- Help popup (content in app.js HELP_TOPICS) -->
+    <div class="modal-overlay hidden" id="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+        <div class="modal glass modal-narrow">
+            <div class="modal-header">
+                <h2 id="help-title">Help</h2>
+                <button class="modal-close" id="btn-help-close" aria-label="Close">×</button>
+            </div>
+            <div class="modal-body help-body" id="help-body"></div>
+            <div class="modal-footer">
+                <span class="status-inline">PRISMA 2020 item numbers refer to the <a href="https://www.prisma-statement.org/prisma-2020-checklist" target="_blank" rel="noopener">PRISMA 2020 checklist</a>. This tool is not affiliated with the PRISMA Group.</span>
+                <button class="btn-primary btn-sm" id="btn-help-ok" type="button">Got it</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Settings dialog -->
     <div class="modal-overlay hidden" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -404,8 +573,19 @@
                             </div>
                             <label class="field-label" for="setting-ORCA_BASE_URL">Base URL</label>
                             <input type="text" id="setting-ORCA_BASE_URL" placeholder="https://api.orcarouter.ai/v1">
+                            <span class="field-label">Routing</span>
+                            <div class="segmented" id="orca-routing" role="radiogroup" aria-label="OrcaRouter routing">
+                                <label class="segment">
+                                    <input type="radio" name="orca-routing" value="auto">
+                                    <span><strong>Auto</strong><small>best model per request · needs credits</small></span>
+                                </label>
+                                <label class="segment">
+                                    <input type="radio" name="orca-routing" value="free">
+                                    <span><strong>Free</strong><small>free upstream models · no credits needed</small></span>
+                                </label>
+                            </div>
                         </div>
-                        <p class="settings-help">Get a key at <a href="https://www.orcarouter.ai/console" target="_blank" rel="noopener">orcarouter.ai/console</a>. Without credits, use <code>orcarouter/free</code> below and a concrete <code>-free</code> model for screening.</p>
+                        <p class="settings-help" id="orca-routing-help">Get a key at <a href="https://www.orcarouter.ai/console" target="_blank" rel="noopener">orcarouter.ai/console</a>. <em>Auto</em> sets the default model to <code>orcarouter/auto</code>, <em>Free</em> to <code>orcarouter/free</code>; screening always needs one concrete model, so <em>Free</em> also picks a free <code>-free</code> model for it.</p>
                     </div>
 
                     <div class="provider-block" id="provider-block-gemini">
@@ -505,7 +685,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=6"></script>
+    <script src="/static/js/app.js?v=27"></script>
 </body>
 
 </html>

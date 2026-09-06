@@ -1,4 +1,5 @@
 import os
+from typing import Any, Dict, List
 import asyncio
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
@@ -7,18 +8,23 @@ from fastapi.middleware.cors import CORSMiddleware
 import tempfile
 
 from src.ingestion import load_bibtex
-from src.deduplication import deduplicate_records
+from src.deduplication import deduplicate_records, split_duplicates
 from src.models import Record, ScreeningResult, Dataset
 from src.screening import screen_record, is_fatal_error, fatal_error_hint, check_screening_setup
+from src.prompts import STRICTNESS_LEVELS, normalize_strictness
 from src.reporting import generate_report
-from src.db import init_db, save_record, save_screening_result, get_all_records, get_all_screening_results, get_unique_records, clear_screening_results
+from src.db import (init_db, save_record, save_screening_result, get_all_records, get_all_screening_results,
+                    get_unique_records, clear_screening_results, save_harvest, get_harvests, get_harvest,
+                    get_records_for_harvest, delete_harvest, clear_corpus)
 from src.config import (load_config, save_criteria, load_search_strategy, save_search_strategy,
                         update_env, PROVIDERS, EDITABLE_SETTINGS, SECRET_SETTINGS)
 from src import screening as screening_module
 from src import llm as llm_module
 from src.llm import LLMError, ScreeningModelError, LLMClient, model_for, provider_settings, TASKS
-from src.search_strategy import generate_strategy, normalize_strategy, DATABASES
-from src.harvest import harvest_to_file, list_sources, HarvestError, HARVEST_DIR
+from src.search_strategy import (generate_strategy, normalize_strategy, build_queries,
+                                 parse_year_range, format_year_range, YEAR_FILTER_SUPPORT, DATABASES)
+from src.harvest import harvest, list_sources, papers_to_records, records_to_bibtex, HarvestError
+from src.search_strategy import DATABASES as _DBS
 from src.criteria_assist import generate_criteria, validate_criteria
 from src.chat import ask as chat_ask, select_records, SCOPES
 import json
@@ -38,8 +44,10 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
+    # Never let the browser cache the shell: it carries the ?v= asset versions,
+    # so a stale copy would keep loading old JavaScript after an update.
     with open("static/index.html", "r") as f:
-        return f.read()
+        return HTMLResponse(f.read(), headers={"Cache-Control": "no-store, max-age=0"})
 
 @app.get("/api/criteria")
 async def get_criteria():
@@ -74,7 +82,7 @@ async def generate_criteria_endpoint(request: Request):
         proposed = await asyncio.to_thread(
             generate_criteria, topic, current, data.get("feedback", ""), data.get("count"))
     except (LLMError, ValueError) as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=400)
     return {"criteria": proposed}
 
 
@@ -121,10 +129,12 @@ async def get_settings():
             **{f"MODEL_{t.upper()}": cfg.get(f"MODEL_{t.upper()}") or "" for t in TASKS},
             "MAX_RETRIES": cfg.get("MAX_RETRIES"),
             "LLM_TIMEOUT": cfg.get("LLM_TIMEOUT"),
+            "SCREENING_STRICTNESS": normalize_strictness(cfg.get("SCREENING_STRICTNESS", "")),
             "OPENALEX_EMAIL": cfg.get("OPENALEX_EMAIL") or "",
         },
         "secrets": {k: _secret_state(os.getenv(k)) for k in SECRET_SETTINGS},
         "resolved_models": {"default": model_for("", cfg), **{t: model_for(t, cfg) for t in TASKS}},
+        "free_screening_default": llm_module.DEFAULT_FREE_SCREENING_MODEL,
     }
 
 
@@ -147,6 +157,8 @@ async def put_settings(request: Request):
         val = str(raw).strip() if not isinstance(raw, str) else raw.strip()
         if key == "LLM_PROVIDER" and val and val not in PROVIDERS:
             errors.append(f"LLM_PROVIDER must be one of: {', '.join(PROVIDERS)} (or empty for auto-detect).")
+        elif key == "SCREENING_STRICTNESS" and val and val.lower() not in STRICTNESS_LEVELS:
+            errors.append(f"SCREENING_STRICTNESS must be one of: {', '.join(STRICTNESS_LEVELS)}.")
         elif key == "MAX_RETRIES" and val:
             if not val.isdigit() or int(val) < 1:
                 errors.append("MAX_RETRIES must be a whole number of at least 1.")
@@ -194,7 +206,7 @@ async def settings_models(provider: str = ""):
         ps, client = _client_for(provider)
         models = await asyncio.to_thread(client.list_models)
     except LLMError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"error": e.user_message}, status_code=400)
     ids = sorted({str(m.get("id", "")) for m in models if isinstance(m, dict) and m.get("id")})
     return {"provider": ps["provider"], "label": ps["label"], "models": ids}
 
@@ -208,7 +220,7 @@ async def settings_test(request: Request):
         ps, client = _client_for(provider)
         models = await asyncio.to_thread(client.list_models)
     except LLMError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"error": e.user_message}, status_code=400)
     return {"ok": True, "provider": ps["provider"], "label": ps["label"],
             "base_url": ps["base_url"], "model_count": len(models)}
 
@@ -221,7 +233,24 @@ async def settings_test(request: Request):
 async def get_search_strategy():
     strategy = load_search_strategy()
     return {"strategy": normalize_strategy(strategy) if strategy else None,
-            "databases": {k: v["label"] for k, v in DATABASES.items()}}
+            "databases": {k: v["label"] for k, v in DATABASES.items()},
+            "year_filter_support": YEAR_FILTER_SUPPORT}
+
+
+@app.post("/api/search-strategy/build")
+async def build_search_queries(request: Request):
+    """Rebuild the per-database queries from the concept blocks without an LLM
+    call. Nothing is saved; the UI shows the result for review and Save."""
+    data = await request.json()
+    concepts = normalize_strategy({"concepts": data.get("concepts") or []})["concepts"]
+    if not any(c["terms"] for c in concepts):
+        return JSONResponse({"error": "Add at least one concept with terms first."}, status_code=400)
+    scope_notes = str(data.get("scope_notes") or "")
+    years = parse_year_range(scope_notes)
+    return {"queries": build_queries(concepts, scope_notes),
+            "year_range": list(years), "year_range_label": format_year_range(years),
+            "year_filter_support": YEAR_FILTER_SUPPORT,
+            "concept_count": sum(1 for c in concepts if c["terms"])}
 
 
 @app.put("/api/search-strategy")
@@ -238,7 +267,7 @@ async def generate_search_strategy(request: Request):
         strategy = await asyncio.to_thread(
             generate_strategy, data.get("topic", ""), data.get("current") or None, data.get("feedback", ""))
     except (LLMError, ValueError) as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=400)
     return {"strategy": strategy}
 
 
@@ -259,99 +288,193 @@ async def start_harvest(request: Request):
     max_results = int(data.get("max_results") or 500)
     if not query:
         return JSONResponse({"error": "Query is empty."}, status_code=400)
+    # Publication-year range: explicit year_from/year_to, else parsed from the
+    # (unsaved) scope notes the UI sends along, else none.
+    if data.get("year_from") not in (None, "") or data.get("year_to") not in (None, ""):
+        years = (data.get("year_from") or None, data.get("year_to") or None)
+    else:
+        years = parse_year_range(str(data.get("scope_notes") or ""))
+    try:
+        years = tuple(int(y) if y not in (None, "") else None for y in years)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "year_from / year_to must be whole years."}, status_code=400)
     job_id = uuid.uuid4().hex[:12]
     job = {"id": job_id, "source": source, "query": query, "max_results": max_results,
+           "years": list(years), "years_label": format_year_range(years),
            "status": "running", "fetched": 0, "total": None, "error": None, "result": None,
            "started": datetime.now().isoformat(timespec="seconds")}
     with harvest_lock:
         harvest_jobs[job_id] = job
+    threading.Thread(target=_run_harvest_job, args=(job,), daemon=True).start()
+    return {"job": job}
 
+
+def _harvest_label(job: Dict[str, Any]) -> str:
+    """Human-readable source_file for harvested records, e.g.
+    "OpenAlex harvest 2026-09-06 16:45"."""
+    name = (_DBS.get(job["source"]) or {}).get("label") or job["source"]
+    return f"{name} harvest {job['started'].replace('T', ' ')[:16]}"
+
+
+def _run_harvest_job(job: Dict[str, Any]) -> None:
+    """Worker: run the API search, store the hits straight into the corpus
+    (global deduplication) and persist the run. Finished jobs leave the
+    in-memory dict; the database is the record of what happened."""
     def progress(n, total):
         job["fetched"], job["total"] = n, total
 
-    def run():
-        try:
-            summary = harvest_to_file(source, query, max_results=max_results, progress=progress)
-            summary["file"] = os.path.basename(summary["file"])
-            job["result"] = summary
-            job["fetched"] = summary["count"]
-            job["status"] = "done"
-        except Exception as e:  # noqa: BLE001 - report any failure to the UI
-            job["error"] = str(e)
-            job["status"] = "failed"
-
-    threading.Thread(target=run, daemon=True).start()
-    return {"job": job}
+    try:
+        papers = harvest(job["source"], job["query"], job["max_results"], progress,
+                         years=tuple(job.get("years") or (None, None)))
+        records = papers_to_records(papers, _harvest_label(job), harvest_id=job["id"])
+        summary = _ingest_records(records)
+        summary.update(count=len(papers), with_abstract=sum(1 for p in papers if p.abstract))
+        job["result"] = summary
+        job["fetched"] = len(papers)
+        job["status"] = "done"
+    except Exception as e:  # noqa: BLE001 - report any failure to the UI
+        job["error"] = str(e)
+        job["status"] = "failed"
+    job["finished"] = datetime.now().isoformat(timespec="seconds")
+    job["label"] = _harvest_label(job)
+    save_harvest(job)
+    with harvest_lock:
+        harvest_jobs.pop(job["id"], None)
 
 
 @app.get("/api/harvest/jobs")
 async def harvest_job_list():
+    """Jobs still running (finished ones are in /api/harvest/runs)."""
     with harvest_lock:
         jobs = sorted(harvest_jobs.values(), key=lambda j: j["started"], reverse=True)
     return {"jobs": jobs}
 
 
-def _harvest_path(name: str) -> str:
-    safe = os.path.basename(name)
-    if not safe.endswith(".bib"):
-        raise ValueError("Not a .bib file")
-    path = os.path.join(HARVEST_DIR, safe)
-    if not os.path.isfile(path):
-        raise FileNotFoundError(safe)
-    return path
+@app.get("/api/harvest/runs")
+async def harvest_runs():
+    """Stored harvest runs, newest first, with what each brought into the corpus."""
+    return {"runs": get_harvests()}
 
 
-@app.get("/api/harvest/files")
-async def harvest_files():
-    os.makedirs(HARVEST_DIR, exist_ok=True)
-    files = []
-    for name in sorted(os.listdir(HARVEST_DIR), reverse=True):
-        if name.endswith(".bib"):
-            path = os.path.join(HARVEST_DIR, name)
-            files.append({"name": name, "size": os.path.getsize(path),
-                          "modified": datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec="seconds")})
-    return {"files": files}
-
-
-@app.get("/api/harvest/download/{name}")
-async def harvest_download(name: str):
-    try:
-        path = _harvest_path(name)
-    except (ValueError, FileNotFoundError):
+@app.get("/api/harvest/runs/{run_id}/download")
+async def harvest_run_download(run_id: str):
+    run = get_harvest(run_id)
+    if not run:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    return FileResponse(path, media_type="application/x-bibtex", filename=os.path.basename(path))
+    records = get_records_for_harvest(run_id)
+    bib = records_to_bibtex(records, query=run.get("query", ""), source=run.get("source", ""))
+    filename = f"{run.get('source', 'harvest')}_{run.get('started', '').replace(':', '').replace('-', '').replace('T', '_')}.bib"
+    return StreamingResponse(iter([bib]), media_type="application/x-bibtex",
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
-@app.post("/api/harvest/ingest/{name}")
-async def harvest_ingest(name: str):
-    """Ingest a harvested .bib straight into the SQLite corpus (same
-    deduplication path as /api/ingest)."""
-    try:
-        path = _harvest_path(name)
-    except (ValueError, FileNotFoundError):
+@app.delete("/api/harvest/runs/{run_id}")
+async def harvest_run_delete(run_id: str):
+    """Remove a run and the records it added; records that already have a
+    screening result are kept (detached from the run)."""
+    if is_screening_running:
+        return JSONResponse({"error": "Stop screening first."}, status_code=409)
+    if not get_harvest(run_id):
         return JSONResponse({"error": "Not found"}, status_code=404)
-    new_records = load_bibtex(path)
-    if not new_records:
-        return JSONResponse({"error": "No records in file."}, status_code=400)
-    existing_records = [Record(**r) for r in get_all_records()]
-    deduped_all = deduplicate_records(existing_records + new_records)
-    for rec in deduped_all:
+    return {"status": "success", **delete_harvest(run_id)}
+
+
+def _ingest_records(new_records: List[Record]) -> Dict[str, Any]:
+    """Merge ``new_records`` into the SQLite corpus with global deduplication.
+
+    Every record is stored, duplicates included (flagged with ``is_duplicate``,
+    ``duplicate_of`` and ``duplicate_reason``), so the Ingestion dashboard can
+    list them and the PRISMA flow can report "records identified" versus
+    "duplicates removed". Screening only ever sees canonical records
+    (``get_unique_records``).
+    """
+    existing = [Record(**r) for r in get_all_records()]
+    # Record ids are BibTeX keys, so they are only unique within one file.
+    # A record we already hold from the same file is a re-ingest: skip it.
+    # A key clash with a different file gets a fresh id so nothing is overwritten.
+    by_id = {r.id: r for r in existing}
+    taken = set(by_id)
+    fresh, already = [], 0
+    for rec in new_records:
+        held = by_id.get(rec.id)
+        if held is not None and held.source_file == rec.source_file:
+            already += 1
+            continue
+        if rec.id in taken:
+            base, n = rec.id, 2
+            while f"{base}_{n}" in taken:
+                n += 1
+            rec.id = f"{base}_{n}"
+        taken.add(rec.id)
+        fresh.append(rec)
+    canonical, duplicates = split_duplicates(existing + fresh)
+    for rec in existing + fresh:
         save_record(rec.model_dump())
-    return {"status": "success", "uploaded": len(new_records), "total_unique_db": len(deduped_all)}
+    new_ids = {r.id for r in fresh}
+    new_dup = sum(1 for r in duplicates if r.id in new_ids)
+    return {"status": "success", "uploaded": len(new_records), "already_ingested": already,
+            "new_unique": len(fresh) - new_dup, "new_duplicates": new_dup,
+            "total_unique_db": len(canonical), "total_duplicates_db": len(duplicates),
+            "total_records_db": len(canonical) + len(duplicates)}
 
 
-@app.delete("/api/harvest/files/{name}")
-async def harvest_delete(name: str):
-    try:
-        path = _harvest_path(name)
-    except (ValueError, FileNotFoundError):
-        return JSONResponse({"error": "Not found"}, status_code=404)
-    os.unlink(path)
-    return {"status": "deleted"}
+def _duplicate_rows(records: List[Dict[str, Any]], offset: int, limit: int) -> Dict[str, Any]:
+    """One page of duplicate records (newest ingested last), each with the
+    record it duplicates."""
+    by_id = {r["id"]: r for r in records}
+    dups = [r for r in records if r.get("is_duplicate")]
+    offset = max(0, int(offset))
+    limit = max(1, min(int(limit), 1000))
+    rows = []
+    for r in dups[offset:offset + limit]:
+        canon = by_id.get(r.get("duplicate_of") or "", {})
+        rows.append({
+            "id": r["id"], "title": r.get("title", ""), "year": r.get("year"), "doi": r.get("doi"),
+            "source_file": r.get("source_file", ""), "reason": r.get("duplicate_reason", ""),
+            "duplicate_of": r.get("duplicate_of"), "canonical_title": canon.get("title", ""),
+            "canonical_source": canon.get("source_file", ""),
+        })
+    return {"total": len(dups), "offset": offset, "limit": limit, "items": rows,
+            "has_more": offset + len(rows) < len(dups)}
+
+
+@app.delete("/api/ingest/all")
+async def delete_all_ingested():
+    """Flush the corpus: all records, harvest runs and screening results.
+    criteria.json and search_strategy.json are untouched."""
+    if is_screening_running:
+        return JSONResponse({"error": "Stop screening first."}, status_code=409)
+    return {"status": "success", **clear_corpus()}
+
+
+@app.get("/api/ingest/duplicates")
+async def ingest_duplicates(offset: int = 0, limit: int = 100):
+    """Paged list of duplicate records for the Ingestion dashboard."""
+    return _duplicate_rows(get_all_records(), offset, limit)
+
+
+@app.get("/api/ingest/stats")
+async def ingest_stats(limit: int = 100):
+    """Corpus dashboard: identified / unique / duplicate counts, per-source
+    breakdown and the first page of duplicate records (see
+    /api/ingest/duplicates for paging)."""
+    records = get_all_records()
+    dups = [r for r in records if r.get("is_duplicate")]
+    per_source: Dict[str, Dict[str, int]] = {}
+    for r in records:
+        src = r.get("source_file") or "(unknown)"
+        row = per_source.setdefault(src, {"records": 0, "duplicates": 0})
+        row["records"] += 1
+        if r.get("is_duplicate"):
+            row["duplicates"] += 1
+    page = _duplicate_rows(records, 0, limit)
+    return {"total_records": len(records), "unique": len(records) - len(dups), "duplicates": len(dups),
+            "sources": [{"source_file": k, **v} for k, v in sorted(per_source.items())],
+            "duplicate_list": page["items"], "duplicate_list_truncated": page["has_more"]}
 
 
 # ---------------------------------------------------------------------------
-# Chat over screened results
+# Chat over screened results (lives on the Review tab)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/chat/scope")
@@ -366,6 +489,7 @@ async def chat_endpoint(request: Request):
     data = await request.json()
     messages = data.get("messages") or []
     scope = data.get("scope", "included")
+    focus_record_id = (data.get("focus_record_id") or "").strip() or None
     if scope not in SCOPES:
         return JSONResponse({"error": f"Unknown scope '{scope}'"}, status_code=400)
     if not messages or messages[-1].get("role") != "user":
@@ -374,12 +498,13 @@ async def chat_endpoint(request: Request):
     results = get_all_screening_results()
     criteria = load_config().get("CRITERIA", {})
     try:
-        out = await asyncio.to_thread(chat_ask, messages, records, results, criteria, scope)
-    except LLMError as e:
+        out = await asyncio.to_thread(chat_ask, messages, records, results, criteria, scope, focus_record_id)
+    except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
+    except LLMError as e:
+        return JSONResponse({"error": e.user_message}, status_code=400)
     return out
 
-from typing import List
 
 @app.post("/api/ingest")
 async def ingest_file(files: List[UploadFile] = File(...)):
@@ -403,19 +528,7 @@ async def ingest_file(files: List[UploadFile] = File(...)):
             
     if not new_records:
         return JSONResponse({"error": "No valid records found in uploaded files."}, status_code=400)
-        
-    # Pull existing records to perform global deduplication against new ones
-    existing_dicts = get_all_records()
-    existing_records = [Record(**r) for r in existing_dicts]
-    
-    all_records = existing_records + new_records
-    deduped_all = deduplicate_records(all_records)
-    
-    # Save to SQLite (INSERT OR REPLACE will update duplicate tags if necessary)
-    for rec in deduped_all:
-        save_record(rec.model_dump())
-        
-    return {"status": "success", "uploaded": len(new_records), "total_unique_db": len(deduped_all)}
+    return _ingest_records(new_records)
 
 @app.get("/api/records")
 async def get_records():
@@ -430,7 +543,11 @@ async def screen_status():
     total = len(get_unique_records())
     # Pinned screening model + whether a batch may start with it (see
     # check_screening_setup); the UI shows the model and the reason if not.
-    model_info = {"model": "", "model_ok": True, "model_error": ""}
+    cfg_now = screening_module.config
+    model_info = {"model": "", "model_ok": True, "model_error": "",
+                  "strictness": normalize_strictness(cfg_now.get("SCREENING_STRICTNESS", "")),
+                  "strictness_levels": {k: {"label": v["label"], "summary": v["summary"]}
+                                        for k, v in STRICTNESS_LEVELS.items()}}
     try:
         model_info["model"] = check_screening_setup(all_res)
     except ScreeningModelError as e:
@@ -539,6 +656,115 @@ async def submit_review(record_id: str, request: Request):
         save_screening_result(res)
         return {"status": "success"}
     return JSONResponse({"error": "Not found"}, status_code=404)
+
+def _effective_decision(result: Dict[str, Any]) -> str:
+    """Human decision wins; a failed AI call counts as not screened."""
+    if not result:
+        return "Not screened"
+    if "Failed after" in (result.get("notes") or "") and not result.get("human_reviewed"):
+        return "Failed"
+    return result.get("final_decision") or result.get("decision") or "Not screened"
+
+
+def _report_rows() -> Dict[str, Any]:
+    records = get_all_records()
+    results = get_all_screening_results()
+    unique = [r for r in records if not r.get("is_duplicate")]
+    rows = []
+    for r in unique:
+        res = results.get(r["id"], {})
+        decision = _effective_decision(res)
+        scores = {k: (v or {}).get("score") for k, v in (res.get("criteria") or {}).items()} if res else {}
+        rows.append({
+            "id": r["id"], "title": r.get("title", ""), "year": r.get("year"), "authors": r.get("authors", ""),
+            "doi": r.get("doi"), "source_file": r.get("source_file", ""),
+            "decision": decision, "ai_decision": res.get("decision", "") if res else "",
+            "human_reviewed": bool(res.get("human_reviewed")) if res else False,
+            "unmet_criteria": res.get("unmet_criteria", "") if res else "",
+            "scores": scores, "model_version": res.get("model_version", "") if res else "",
+            "strictness": res.get("strictness", "") if res else "",
+            "notes": res.get("notes", "") if res else "",
+        })
+    return {"records": records, "unique": unique, "results": results, "rows": rows}
+
+
+@app.get("/api/report/summary")
+async def report_summary():
+    """Counts for the PRISMA 2020 flow diagram and the dashboard tiles."""
+    d = _report_rows()
+    rows = d["rows"]
+    counts = {"identified": len(d["records"]), "duplicates_removed": len(d["records"]) - len(d["unique"]),
+              "unique": len(d["unique"])}
+    by_decision: Dict[str, int] = {}
+    for row in rows:
+        by_decision[row["decision"]] = by_decision.get(row["decision"], 0) + 1
+    counts.update({
+        "included": by_decision.get("Include", 0), "excluded": by_decision.get("Exclude", 0),
+        "maybe": by_decision.get("Maybe", 0), "not_screened": by_decision.get("Not screened", 0),
+        "failed": by_decision.get("Failed", 0),
+        "human_reviewed": sum(1 for r in rows if r["human_reviewed"]),
+    })
+    counts["screened"] = counts["included"] + counts["excluded"] + counts["maybe"]
+    # Identification by source (all records, duplicates included = what each source contributed).
+    sources: Dict[str, Dict[str, int]] = {}
+    for r in d["records"]:
+        src = r.get("source_file") or "(unknown)"
+        row = sources.setdefault(src, {"identified": 0, "duplicates": 0, "included": 0, "excluded": 0,
+                                       "maybe": 0, "not_screened": 0})
+        row["identified"] += 1
+        if r.get("is_duplicate"):
+            row["duplicates"] += 1
+    for row in rows:
+        src = row["source_file"] or "(unknown)"
+        key = {"Include": "included", "Exclude": "excluded", "Maybe": "maybe"}.get(row["decision"], "not_screened")
+        sources[src][key] += 1
+    unmet: Dict[str, int] = {}
+    for row in rows:
+        if row["decision"] in ("Exclude", "Maybe"):
+            key = row["unmet_criteria"] or "None/Other"
+            unmet[key] = unmet.get(key, 0) + 1
+    models: Dict[str, int] = {}
+    levels: Dict[str, int] = {}
+    for row in rows:
+        if row["decision"] in ("Include", "Exclude", "Maybe") and row["model_version"]:
+            models[row["model_version"]] = models.get(row["model_version"], 0) + 1
+            lv = normalize_strictness(row["strictness"])
+            levels[lv] = levels.get(lv, 0) + 1
+    criteria = load_config().get("CRITERIA", {})
+    avg_scores = {}
+    for key in criteria:
+        vals = [row["scores"].get(key) for row in rows if isinstance(row["scores"].get(key), (int, float))]
+        avg_scores[key] = round(sum(vals) / len(vals), 3) if vals else None
+    return {"counts": counts,
+            "sources": [{"source_file": k, **v} for k, v in sorted(sources.items())],
+            "unmet_criteria": sorted(({"criteria": k, "count": v} for k, v in unmet.items()),
+                                     key=lambda x: -x["count"]),
+            "models": models, "strictness": levels,
+            "criteria": {k: v.get("name", "") for k, v in criteria.items()}, "avg_scores": avg_scores,
+            "generated": datetime.now().isoformat(timespec="seconds")}
+
+
+@app.get("/api/report/results")
+async def report_results(offset: int = 0, limit: int = 30, decision: str = "", q: str = ""):
+    """Every unique record with its screening outcome, paged; optional
+    decision filter (Include | Exclude | Maybe | Not screened | Failed) and
+    free-text search over title / authors / DOI / id."""
+    rows = _report_rows()["rows"]
+    if decision:
+        rows = [r for r in rows if r["decision"].lower() == decision.strip().lower()]
+    if q.strip():
+        needle = q.strip().lower()
+        rows = [r for r in rows if needle in " ".join(
+            str(r.get(f) or "") for f in ("title", "authors", "doi", "id", "source_file")).lower()]
+    order = {"Include": 0, "Maybe": 1, "Exclude": 2, "Failed": 3, "Not screened": 4}
+    rows.sort(key=lambda r: (order.get(r["decision"], 9), (r["title"] or "").lower()))
+    offset = max(0, int(offset))
+    limit = max(1, min(int(limit), 500))
+    page = rows[offset:offset + limit]
+    return {"total": len(rows), "offset": offset, "limit": limit, "items": page,
+            "has_more": offset + len(page) < len(rows),
+            "criteria": list(load_config().get("CRITERIA", {}).keys())}
+
 
 @app.get("/api/report")
 async def download_report():

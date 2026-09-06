@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Tuple
 from .models import Record
 from .utils import normalize_string
 
@@ -11,7 +11,10 @@ def title_year_author_key(record: Record) -> str:
     deduplication would silently stop working for DOI-less records.
     """
     first_author = record.authors.split(',')[0] if record.authors else ""
-    return f"{record.normalized_title}|{record.year}|{normalize_string(first_author)}"
+    # Ingestion fills normalized_title; fall back to the raw title for records
+    # built elsewhere (tests, hand-made JSON) so they never all collide on "".
+    title_key = record.normalized_title or normalize_string(record.title)
+    return f"{title_key}|{record.year}|{normalize_string(first_author)}"
 
 
 def deduplicate_records(records: List[Record]) -> List[Record]:
@@ -62,6 +65,7 @@ def deduplicate_records(records: List[Record]) -> List[Record]:
             print(f"    Duplicate of: {canonical_id}")
             record.is_duplicate = True
             record.duplicate_of = canonical_id
+            record.duplicate_reason = reason
             deduplicated_count += 1
         else:
             # New canonical record
@@ -74,3 +78,21 @@ def deduplicate_records(records: List[Record]) -> List[Record]:
             seen_tya[title_year_author_key(record)] = record.id
             
     return list(canonical_records.values())
+
+
+def split_duplicates(records: List[Record]) -> Tuple[List[Record], List[Record]]:
+    """Run deduplication and return ``(canonical, duplicates)``.
+
+    Flags are reset first so records reloaded from storage are re-evaluated
+    against the current corpus. Order matters: put already-canonical records
+    first so an existing canonical record can never be demoted (its id is
+    referenced by screening results).
+    """
+    ordered = sorted(records, key=lambda r: bool(r.is_duplicate))
+    for r in ordered:
+        r.is_duplicate = False
+        r.duplicate_of = None
+        r.duplicate_reason = ""
+    canonical = deduplicate_records(ordered)
+    duplicates = [r for r in ordered if r.is_duplicate]
+    return canonical, duplicates

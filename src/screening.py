@@ -9,7 +9,7 @@ from .llm import (LLMClient, LLMError, parse_json_text, build_client,
                   provider_settings, missing_key_message,
                   ScreeningModelError, screening_model, check_resolved_model)
 
-from .prompts import generate_prompt
+from .prompts import generate_prompt, normalize_strictness, STRICTNESS_LEVELS
 
 config = load_config()
 
@@ -56,7 +56,9 @@ def screen_record(record: Record) -> ScreeningResult:
         )
     pin_check = provider_settings(config)["provider"] == "orcarouter"
     criteria = config.get("CRITERIA", {})
-    prompt = generate_prompt(title=record.title, abstract=record.abstract, criteria=criteria)
+    strictness = normalize_strictness(config.get("SCREENING_STRICTNESS", ""))
+    prompt = generate_prompt(title=record.title, abstract=record.abstract, criteria=criteria,
+                             strictness=strictness)
 
     max_retries = config.get("MAX_RETRIES", 3)
     last_error = ""
@@ -119,7 +121,8 @@ def screen_record(record: Record) -> ScreeningResult:
                 unmet_criteria=str(result_json.get("unmet_criteria", "") or ""),
                 notes=str(result_json.get("notes", "") or ""),
                 timestamp=str(os.times()),
-                model_version=response.model_label
+                model_version=response.model_label,
+                strictness=strictness,
             )
 
         except Exception as e:
@@ -209,7 +212,9 @@ MODEL_UNAVAILABLE_HINT = (
 
 BILLING_HINT = (
     "OrcaRouter rejected the request: check ORCA_API_KEY in .env and your credit "
-    "balance at https://www.orcarouter.ai/console/billing."
+    "balance at https://www.orcarouter.ai/console/billing. Without credits, set "
+    "MODEL_NAME=orcarouter/free and MODEL_SCREENING to a concrete free model such as "
+    "deepseek/deepseek-v4-flash-free."
 )
 
 GEMINI_BILLING_HINT = (
@@ -250,6 +255,22 @@ def existing_screening_models(results) -> Dict[str, int]:
     return counts
 
 
+def existing_screening_strictness(results) -> Dict[str, int]:
+    """Count successful results per strictness level (failed ones ignored;
+    results from before the setting existed count as 'strict')."""
+    counts: Dict[str, int] = {}
+    for res in (results.values() if isinstance(results, dict) else results):
+        if isinstance(res, ScreeningResult):
+            notes, level = res.notes, res.strictness
+        else:
+            notes, level = res.get("notes", "") or "", res.get("strictness", "") or ""
+        if "Failed after" in notes:
+            continue
+        level = normalize_strictness(level)
+        counts[level] = counts.get(level, 0) + 1
+    return counts
+
+
 def check_screening_setup(already_screened=None) -> str:
     """Validate the screening model before a batch starts and return its id.
 
@@ -269,6 +290,16 @@ def check_screening_setup(already_screened=None) -> str:
             f"model is now '{model}'. All records of one review must be screened by the "
             f"same model: restore MODEL_SCREENING to the previous model, or reset the "
             f"screening results to re-screen everything with '{model}'.")
+    level = normalize_strictness(config.get("SCREENING_STRICTNESS", ""))
+    other_levels = {lv: n for lv, n in existing_screening_strictness(already_screened or {}).items()
+                    if lv != level}
+    if other_levels:
+        listing = ", ".join(f"{STRICTNESS_LEVELS[lv]['label']} ({n} records)" for lv, n in sorted(other_levels.items()))
+        raise ScreeningModelError(
+            f"Existing screening results were decided at strictness {listing}, but the strictness "
+            f"is now '{STRICTNESS_LEVELS[level]['label']}'. All records of one review must be judged "
+            f"by the same rules: switch back to the previous strictness, or reset the screening "
+            f"results to re-screen everything at the new level.")
     return model
 
 

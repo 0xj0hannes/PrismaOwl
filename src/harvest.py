@@ -24,7 +24,7 @@ import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from typing import Any, Callable, Dict, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 import requests
 import bibtexparser
@@ -32,6 +32,8 @@ from bibtexparser.bibdatabase import BibDatabase
 from bibtexparser.bwriter import BibTexWriter
 
 from .config import load_config
+from .models import Record
+from .utils import normalize_string
 
 HARVEST_DIR = "data/harvest"
 USER_AGENT = "PrismaOwl/1.0 (https://github.com/0xj0hannes/PrismaOwl)"
@@ -61,6 +63,7 @@ class Paper:
 
 
 ProgressFn = Optional[Callable[[int, Optional[int]], None]]
+YearRange = Tuple[Optional[int], Optional[int]]   # (from_year, to_year), either side optional
 
 
 # --------------------------------------------------------------------------
@@ -106,10 +109,18 @@ def _strip_tags(text: str) -> str:
 # Providers. Each yields Paper objects until exhausted or max_results reached.
 # --------------------------------------------------------------------------
 
-def _openalex(query: str, max_results: int, cfg: Dict[str, Any], progress: ProgressFn) -> Iterator[Paper]:
+def _openalex(query: str, max_results: int, cfg: Dict[str, Any], progress: ProgressFn,
+              years: YearRange = (None, None)) -> Iterator[Paper]:
     params = {"search": query, "per-page": min(200, max_results), "cursor": "*"}
     if cfg.get("OPENALEX_EMAIL"):
         params["mailto"] = cfg["OPENALEX_EMAIL"]
+    filters = []
+    if years[0] is not None:
+        filters.append(f"from_publication_date:{years[0]}-01-01")
+    if years[1] is not None:
+        filters.append(f"to_publication_date:{years[1]}-12-31")
+    if filters:
+        params["filter"] = ",".join(filters)
     fetched = 0
     while fetched < max_results:
         data = _get("https://api.openalex.org/works", params).json()
@@ -160,12 +171,15 @@ def _openalex(query: str, max_results: int, cfg: Dict[str, Any], progress: Progr
         time.sleep(0.2)
 
 
-def _semantic_scholar(query: str, max_results: int, cfg: Dict[str, Any], progress: ProgressFn) -> Iterator[Paper]:
+def _semantic_scholar(query: str, max_results: int, cfg: Dict[str, Any], progress: ProgressFn,
+                      years: YearRange = (None, None)) -> Iterator[Paper]:
     headers = {}
     if cfg.get("SEMANTIC_SCHOLAR_API_KEY"):
         headers["x-api-key"] = cfg["SEMANTIC_SCHOLAR_API_KEY"]
     params = {"query": query,
               "fields": "title,abstract,year,authors,externalIds,venue,publicationTypes,journal,url"}
+    if years[0] is not None or years[1] is not None:
+        params["year"] = f"{years[0] or ''}-{years[1] or ''}"
     fetched = 0
     while fetched < max_results:
         data = _get("https://api.semanticscholar.org/graph/v1/paper/search/bulk", params, headers).json()
@@ -205,7 +219,11 @@ _ARXIV_NS = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/s
              "os": "http://a9.com/-/spec/opensearch/1.1/"}
 
 
-def _arxiv(query: str, max_results: int, cfg: Dict[str, Any], progress: ProgressFn) -> Iterator[Paper]:
+def _arxiv(query: str, max_results: int, cfg: Dict[str, Any], progress: ProgressFn,
+           years: YearRange = (None, None)) -> Iterator[Paper]:
+    if (years[0] is not None or years[1] is not None) and "submitteddate" not in query.lower():
+        query = (f"({query}) AND submittedDate:[{years[0] or 1991}0101 TO "
+                 f"{years[1] or datetime.now().year}1231]")
     start, page = 0, 100
     fetched = 0
     while fetched < max_results:
@@ -247,11 +265,19 @@ def _arxiv(query: str, max_results: int, cfg: Dict[str, Any], progress: Progress
         time.sleep(3.0)  # arXiv API terms of use
 
 
-def _crossref(query: str, max_results: int, cfg: Dict[str, Any], progress: ProgressFn) -> Iterator[Paper]:
+def _crossref(query: str, max_results: int, cfg: Dict[str, Any], progress: ProgressFn,
+              years: YearRange = (None, None)) -> Iterator[Paper]:
     params = {"query.bibliographic": query, "rows": min(100, max_results), "cursor": "*",
               "select": "DOI,title,abstract,author,issued,container-title,type,volume,issue,page,URL,subject"}
     if cfg.get("OPENALEX_EMAIL"):
         params["mailto"] = cfg["OPENALEX_EMAIL"]
+    filters = []
+    if years[0] is not None:
+        filters.append(f"from-pub-date:{years[0]}")
+    if years[1] is not None:
+        filters.append(f"until-pub-date:{years[1]}")
+    if filters:
+        params["filter"] = ",".join(filters)
     fetched = 0
     while fetched < max_results:
         msg = _get("https://api.crossref.org/works", params).json().get("message", {})
@@ -291,10 +317,16 @@ def _crossref(query: str, max_results: int, cfg: Dict[str, Any], progress: Progr
         time.sleep(0.5)
 
 
-def _scopus(query: str, max_results: int, cfg: Dict[str, Any], progress: ProgressFn) -> Iterator[Paper]:
+def _scopus(query: str, max_results: int, cfg: Dict[str, Any], progress: ProgressFn,
+            years: YearRange = (None, None)) -> Iterator[Paper]:
     key = cfg.get("SCOPUS_API_KEY")
     if not key:
         raise HarvestError("SCOPUS_API_KEY is not set in .env")
+    if "pubyear" not in query.lower():
+        if years[0] is not None:
+            query += f" AND PUBYEAR > {years[0] - 1}"
+        if years[1] is not None:
+            query += f" AND PUBYEAR < {years[1] + 1}"
     headers = {"X-ELS-APIKey": key, "Accept": "application/json"}
     if cfg.get("SCOPUS_INST_TOKEN"):
         headers["X-ELS-Insttoken"] = cfg["SCOPUS_INST_TOKEN"]
@@ -346,7 +378,8 @@ def _scopus(query: str, max_results: int, cfg: Dict[str, Any], progress: Progres
         time.sleep(0.3)
 
 
-def _ieee(query: str, max_results: int, cfg: Dict[str, Any], progress: ProgressFn) -> Iterator[Paper]:
+def _ieee(query: str, max_results: int, cfg: Dict[str, Any], progress: ProgressFn,
+          years: YearRange = (None, None)) -> Iterator[Paper]:
     key = cfg.get("IEEE_API_KEY")
     if not key:
         raise HarvestError("IEEE_API_KEY is not set in .env")
@@ -354,6 +387,10 @@ def _ieee(query: str, max_results: int, cfg: Dict[str, Any], progress: ProgressF
     while fetched < max_results:
         params = {"apikey": key, "querytext": query, "format": "json",
                   "max_records": min(200, max_results - fetched), "start_record": start}
+        if years[0] is not None:
+            params["start_year"] = years[0]
+        if years[1] is not None:
+            params["end_year"] = years[1]
         data = _get("https://ieeexploreapi.ieee.org/api/v1/search/articles", params).json()
         total = data.get("total_records")
         articles = data.get("articles", [])
@@ -526,8 +563,11 @@ def papers_to_bibtex(papers: List[Paper], query: str = "", source: str = "") -> 
 # --------------------------------------------------------------------------
 
 def harvest(source: str, query: str, max_results: int = 500,
-            progress: ProgressFn = None) -> List[Paper]:
-    """Run ``query`` against ``source`` and return up to ``max_results`` papers."""
+            progress: ProgressFn = None, years: YearRange = (None, None)) -> List[Paper]:
+    """Run ``query`` against ``source`` and return up to ``max_results`` papers.
+
+    ``years`` is an optional ``(from, to)`` publication-year range (either side
+    may be ``None``); each provider applies it the way its API allows."""
     if source in MANUAL_ONLY:
         raise HarvestError(MANUAL_ONLY[source])
     provider = PROVIDERS.get(source)
@@ -537,13 +577,25 @@ def harvest(source: str, query: str, max_results: int = 500,
         raise HarvestError("Query is empty.")
     max_results = max(1, min(int(max_results), 5000))
     cfg = load_config()
-    return list(provider(query.strip(), max_results, cfg, progress))
+    years = _normalize_years(years)
+    return list(provider(query.strip(), max_results, cfg, progress, years))
+
+
+def _normalize_years(years) -> YearRange:
+    a, b = (tuple(years) + (None, None))[:2] if years else (None, None)
+    a = int(a) if a not in (None, "") else None
+    b = int(b) if b not in (None, "") else None
+    if a is not None and b is not None and a > b:
+        a, b = b, a
+    return (a, b)
 
 
 def harvest_to_file(source: str, query: str, output: Optional[str] = None,
-                    max_results: int = 500, progress: ProgressFn = None) -> Dict[str, Any]:
+                    max_results: int = 500, progress: ProgressFn = None,
+                    years: YearRange = (None, None)) -> Dict[str, Any]:
     """Harvest and write a .bib file. Returns a summary dict."""
-    papers = harvest(source, query, max_results, progress)
+    years = _normalize_years(years)
+    papers = harvest(source, query, max_results, progress, years)
     if output is None:
         os.makedirs(HARVEST_DIR, exist_ok=True)
         output = os.path.join(HARVEST_DIR, f"{source}_{datetime.now():%Y%m%d_%H%M%S}.bib")
@@ -553,8 +605,53 @@ def harvest_to_file(source: str, query: str, output: Optional[str] = None,
         f.write(papers_to_bibtex(papers, query=query, source=source))
     n_abstracts = sum(1 for p in papers if p.abstract)
     return {"source": source, "query": query, "file": output, "count": len(papers),
-            "with_abstract": n_abstracts}
+            "with_abstract": n_abstracts, "years": list(years)}
 
 
 def paper_dicts(papers: List[Paper]) -> List[Dict[str, Any]]:
     return [asdict(p) for p in papers]
+
+
+def papers_to_records(papers: List[Paper], source_file: str, harvest_id: Optional[str] = None) -> List[Record]:
+    """Turn harvested papers into corpus ``Record``s directly (no BibTeX file
+    in between). Ids are the same keys ``papers_to_bibtex`` would generate, the
+    author string has the "Last, First, Last, First" shape ingestion produces,
+    and the full ``Paper`` is kept in ``raw_data`` so a .bib can be regenerated
+    later with ``records_to_bibtex``."""
+    used: set = set()
+    records = []
+    for p in papers:
+        title = " ".join((p.title or "").split())
+        if not title:
+            continue
+        records.append(Record(
+            id=make_bib_key(p, used),
+            title=title,
+            abstract=(p.abstract or "").strip(),
+            authors=", ".join(_bib_person(a) for a in p.authors if a),
+            year=str(p.year or "").strip(),
+            doi=(p.doi or "").strip() or None,
+            source_file=source_file,
+            harvest_id=harvest_id,
+            raw_data=asdict(p),
+            normalized_title=normalize_string(title),
+        ))
+    return records
+
+
+def record_to_paper(record: Dict[str, Any]) -> Paper:
+    """Rebuild a ``Paper`` from a stored record (its ``raw_data`` when it came
+    from a harvest, else the record's own fields)."""
+    raw = record.get("raw_data") or {}
+    fields = {f for f in Paper.__dataclass_fields__}
+    if "title" in raw and isinstance(raw.get("authors"), list):
+        return Paper(**{k: v for k, v in raw.items() if k in fields})
+    authors = [a.strip() for a in (record.get("authors") or "").split(",")]
+    # "Last, First, Last, First" -> ["Last, First", ...]
+    pairs = [", ".join(authors[i:i + 2]) for i in range(0, len(authors), 2)] if authors != [""] else []
+    return Paper(title=record.get("title", ""), abstract=record.get("abstract", ""), authors=pairs,
+                 year=str(record.get("year") or ""), doi=record.get("doi") or "")
+
+
+def records_to_bibtex(records: List[Dict[str, Any]], query: str = "", source: str = "") -> str:
+    return papers_to_bibtex([record_to_paper(r) for r in records], query=query, source=source)

@@ -67,7 +67,9 @@ def generate_report(input_file: str, output_csv: str):
             "Decision": decision,
             "Unmet_Criteria": result.get("unmet_criteria", ""),
             "Human_Reviewed": result.get("human_reviewed", False),
-            "Notes": result.get("notes")
+            "Notes": result.get("notes"),
+            "Model_Version": result.get("model_version", ""),
+            "Strictness": result.get("strictness", ""),
         }
         
         # Unroll dynamic criteria

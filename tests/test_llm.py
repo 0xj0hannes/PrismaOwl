@@ -166,7 +166,8 @@ def test_resolve_provider_prefers_explicit_then_keys():
 
 def test_load_config_gemini_only_key_selects_gemini(monkeypatch):
     from src import config as cfgmod
-    for var in ("LLM_PROVIDER", "ORCA_API_KEY", "GEMINI_API_KEY", "MODEL_NAME", "GEMINI_BASE_URL"):
+    for var in ("LLM_PROVIDER", "ORCA_API_KEY", "GEMINI_API_KEY", "MODEL_NAME", "GEMINI_BASE_URL",
+                "MODEL_SCREENING", "MODEL_QUERY", "MODEL_CRITERIA", "MODEL_CHAT"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "g-key")
     monkeypatch.setattr(cfgmod, "load_dotenv", lambda *a, **k: None)
@@ -281,3 +282,12 @@ def test_check_resolved_model_tolerates_snapshots_but_not_other_models():
     assert not llm.check_resolved_model("deepseek/deepseek-v4-flash-free", "hy3")
     assert not llm.check_resolved_model("tencent/hy3-free", "deepseek-v4-flash")
     assert llm.LLMError("x", code="model_substituted").fatal
+
+
+def test_402_error_carries_free_tier_hint_but_str_stays_raw():
+    e = llm.LLMError("You're out of credits", status=402, code="insufficient_user_quota")
+    assert str(e) == "HTTP 402 [insufficient_user_quota] You're out of credits"
+    assert "orcarouter/free" in e.hint and "deepseek/deepseek-v4-flash-free" in e.hint
+    assert e.user_message.startswith(str(e)) and e.hint in e.user_message
+    assert llm.LLMError("bad key", status=401).hint == ""
+    assert llm.LLMError("boom", status=500).user_message == "HTTP 500 boom"

@@ -33,7 +33,23 @@ def init_db():
                 FOREIGN KEY (record_id) REFERENCES records (id)
             )
         ''')
-        
+
+        # Harvest runs (API searches) live in the database too; their records
+        # go straight into `records` with harvest_id pointing back here.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS harvests (
+                id TEXT PRIMARY KEY,
+                source TEXT,
+                status TEXT,
+                started TEXT,
+                data TEXT
+            )
+        ''')
+        # Migration for databases created before harvests were stored.
+        cols = {row[1] for row in cursor.execute("PRAGMA table_info(records)").fetchall()}
+        if "harvest_id" not in cols:
+            cursor.execute("ALTER TABLE records ADD COLUMN harvest_id TEXT")
+
         conn.commit()
 
 @contextmanager
@@ -49,11 +65,12 @@ def save_record(record_data: dict):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            'INSERT OR REPLACE INTO records (id, is_duplicate, duplicate_of, data) VALUES (?, ?, ?, ?)',
+            'INSERT OR REPLACE INTO records (id, is_duplicate, duplicate_of, harvest_id, data) VALUES (?, ?, ?, ?, ?)',
             (
-                record_data['id'], 
+                record_data['id'],
                 record_data.get('is_duplicate', False),
                 record_data.get('duplicate_of'),
+                record_data.get('harvest_id'),
                 json.dumps(record_data)
             )
         )
@@ -90,6 +107,70 @@ def get_unique_records():
         cursor = conn.cursor()
         cursor.execute('SELECT data FROM records WHERE is_duplicate = 0 OR is_duplicate IS NULL')
         return [json.loads(row['data']) for row in cursor.fetchall()]
+
+# ---------------------------------------------------------------------------
+# Harvest runs
+# ---------------------------------------------------------------------------
+
+def save_harvest(run: dict) -> None:
+    """Insert or update a harvest run (``run['id']`` required)."""
+    with get_db() as conn:
+        conn.execute(
+            'INSERT OR REPLACE INTO harvests (id, source, status, started, data) VALUES (?, ?, ?, ?, ?)',
+            (run['id'], run.get('source'), run.get('status'), run.get('started'), json.dumps(run)))
+        conn.commit()
+
+
+def get_harvests() -> list:
+    """All harvest runs, newest first."""
+    with get_db() as conn:
+        rows = conn.execute('SELECT data FROM harvests ORDER BY started DESC').fetchall()
+        return [json.loads(r['data']) for r in rows]
+
+
+def get_harvest(run_id: str):
+    with get_db() as conn:
+        row = conn.execute('SELECT data FROM harvests WHERE id = ?', (run_id,)).fetchone()
+        return json.loads(row['data']) if row else None
+
+
+def get_records_for_harvest(run_id: str) -> list:
+    with get_db() as conn:
+        rows = conn.execute('SELECT data FROM records WHERE harvest_id = ?', (run_id,)).fetchall()
+        return [json.loads(r['data']) for r in rows]
+
+
+def delete_harvest(run_id: str) -> dict:
+    """Delete a harvest run and the records it brought in, except records that
+    already have a screening result (those stay, detached from the run, so the
+    audit trail is never broken). Returns the counts."""
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute('''DELETE FROM records WHERE harvest_id = ?
+                       AND id NOT IN (SELECT record_id FROM screening_results)''', (run_id,))
+        removed = cur.rowcount
+        cur.execute('UPDATE records SET harvest_id = NULL WHERE harvest_id = ?', (run_id,))
+        kept = cur.rowcount
+        cur.execute('DELETE FROM harvests WHERE id = ?', (run_id,))
+        deleted_run = cur.rowcount
+        conn.commit()
+    return {"deleted_run": bool(deleted_run), "records_removed": removed, "records_kept": kept}
+
+
+def clear_corpus() -> dict:
+    """Delete every ingested record (canonical and duplicate), every harvest
+    run and every screening result. Returns the counts removed."""
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute('DELETE FROM screening_results')
+        results = cur.rowcount
+        cur.execute('DELETE FROM records')
+        records = cur.rowcount
+        cur.execute('DELETE FROM harvests')
+        harvests = cur.rowcount
+        conn.commit()
+    return {"records": records, "harvests": harvests, "screening_results": results}
+
 
 def clear_screening_results() -> int:
     """Delete all screening results. Returns the number of rows removed."""

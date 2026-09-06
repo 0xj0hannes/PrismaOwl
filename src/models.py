@@ -9,12 +9,14 @@ class Record(BaseModel):
     year: Optional[str] = None
     doi: Optional[str] = None
     source_file: str = ""
+    harvest_id: Optional[str] = None   # set when the record came from an API harvest run
     raw_data: Dict[str, Any] = Field(default_factory=dict)
     
     # Deduplication fields
     normalized_title: str = ""
     is_duplicate: bool = False
     duplicate_of: Optional[str] = None # ID of the canonical record
+    duplicate_reason: str = ""         # "DOI match (...)" or "Title + Year + Author match"
 
 class CriterionResult(BaseModel):
     score: float = 0.0
@@ -29,6 +31,7 @@ class ScreeningResult(BaseModel):
     notes: str = ""
     timestamp: str = ""
     model_version: str = ""
+    strictness: str = ""   # decision strictness level the prompt used (strict | balanced | lenient)
 
 class Dataset(BaseModel):
     records: List[Record] = Field(default_factory=list)

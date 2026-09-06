@@ -44,6 +44,7 @@ def _patch_config(monkeypatch, max_retries=3, provider="orcarouter", screening_m
     monkeypatch.setitem(screening.config, "MODEL_NAME", "test-model")
     monkeypatch.setitem(screening.config, "MODEL_SCREENING", screening_model)
     monkeypatch.setitem(screening.config, "MAX_RETRIES", max_retries)
+    monkeypatch.setitem(screening.config, "SCREENING_STRICTNESS", "strict")
 
 
 def test_successful_screening_parses_all_criteria(monkeypatch):
@@ -288,3 +289,49 @@ def test_batch_refuses_to_mix_models_with_existing_results(monkeypatch):
                   "model_version": "anthropic/claude-sonnet-5-20260301"}}
     assert screening.check_screening_setup(same) == "anthropic/claude-sonnet-5"
     assert screening.existing_screening_models(existing) == {"openai/gpt-5": 1}
+
+
+# ---------------------------------------------------------------------------
+# Decision strictness
+# ---------------------------------------------------------------------------
+
+def test_strictness_changes_prompt_and_is_recorded(monkeypatch):
+    _patch_config(monkeypatch, screening_model="anthropic/claude-sonnet-5")
+    monkeypatch.setitem(screening.config, "SCREENING_STRICTNESS", "lenient")
+    payload = {"decision": "Maybe", "IC1": {"score": 0.5}, "IC2": {"score": 0.5}}
+    fake = _FakeClient(text=json.dumps(payload))
+    monkeypatch.setattr(screening, "client", fake)
+
+    result = screening.screen_record(make_record())
+
+    assert result.strictness == "lenient"
+    prompt = fake.calls[0]["messages"][-1]["content"]
+    assert "Favor sensitivity over precision" in prompt and "Favor precision" not in prompt
+
+
+def test_unknown_strictness_falls_back_to_strict(monkeypatch):
+    _patch_config(monkeypatch, screening_model="anthropic/claude-sonnet-5")
+    monkeypatch.setitem(screening.config, "SCREENING_STRICTNESS", "whatever")
+    fake = _FakeClient(text=json.dumps({"decision": "Include", "IC1": {"score": 1}, "IC2": {"score": 1}}))
+    monkeypatch.setattr(screening, "client", fake)
+    assert screening.screen_record(make_record()).strictness == "strict"
+    assert "Favor precision over sensitivity" in fake.calls[0]["messages"][-1]["content"]
+
+
+def test_batch_refuses_to_mix_strictness_levels(monkeypatch):
+    _patch_config(monkeypatch, screening_model="anthropic/claude-sonnet-5")
+    monkeypatch.setitem(screening.config, "SCREENING_STRICTNESS", "balanced")
+    existing = {
+        "a": ScreeningResult(record_id="a", decision="Include", model_version="anthropic/claude-sonnet-5",
+                             strictness="strict"),
+        # pre-setting results (no level stored) count as strict
+        "b": ScreeningResult(record_id="b", decision="Exclude", model_version="anthropic/claude-sonnet-5"),
+        "f": ScreeningResult(record_id="f", decision="Maybe", notes="Failed after 3 attempts. Last error: x"),
+    }
+    with pytest.raises(ScreeningModelError) as ei:
+        screening.check_screening_setup(existing)
+    assert "Strict (precision first) (2 records)" in str(ei.value) and "Balanced" in str(ei.value)
+    assert screening.existing_screening_strictness(existing) == {"strict": 2}
+
+    monkeypatch.setitem(screening.config, "SCREENING_STRICTNESS", "strict")
+    assert screening.check_screening_setup(existing) == "anthropic/claude-sonnet-5"
