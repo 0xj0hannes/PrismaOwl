@@ -199,3 +199,44 @@ def test_flush_removes_records_runs_and_results(web, monkeypatch):
     assert (res["records"], res["harvests"], res["screening_results"]) == (2, 1, 1)
     assert db.get_all_records() == [] and db.get_harvests() == [] and db.get_all_screening_results() == {}
     assert asyncio.run(web.ingest_stats())["total_records"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Reports dashboard: summary counts and paged results
+# ---------------------------------------------------------------------------
+
+def test_report_summary_and_results(web, monkeypatch):
+    _ingest(web, [make_record(id="a", title="Alpha", doi="10.1/a", source_file="s1"),
+                  make_record(id="b", title="Beta", doi="10.1/b", source_file="s1"),
+                  make_record(id="c", title="Gamma", doi="10.1/c", source_file="s2"),
+                  make_record(id="d", title="Delta", doi="10.1/d", source_file="s2"),
+                  make_record(id="a2", title="Alpha", doi="10.1/A", source_file="s2")])   # duplicate of a
+    db.save_screening_result({"record_id": "a", "decision": "Include", "model_version": "m1", "strictness": "strict",
+                              "criteria": {"IC1": {"score": 0.9}, "IC2": {"score": 0.8}}})
+    db.save_screening_result({"record_id": "b", "decision": "Maybe", "unmet_criteria": "IC2", "model_version": "m1",
+                              "criteria": {"IC1": {"score": 0.7}, "IC2": {"score": 0.3}}})
+    db.save_screening_result({"record_id": "c", "decision": "Maybe", "final_decision": "Exclude",
+                              "human_reviewed": True, "unmet_criteria": "IC2", "model_version": "m1"})
+    db.save_screening_result({"record_id": "d", "decision": "Maybe", "notes": "Failed after 3 attempts. Last error: x"})
+    monkeypatch.setattr(web, "load_config", lambda: {"CRITERIA": {"IC1": {"name": "One"}, "IC2": {"name": "Two"}}})
+
+    s = asyncio.run(web.report_summary())
+    c = s["counts"]
+    assert (c["identified"], c["duplicates_removed"], c["unique"]) == (5, 1, 4)
+    assert (c["included"], c["excluded"], c["maybe"], c["failed"], c["not_screened"]) == (1, 1, 1, 1, 0)
+    assert c["screened"] == 3 and c["human_reviewed"] == 1
+    assert s["unmet_criteria"] == [{"criteria": "IC2", "count": 2}]
+    assert s["models"] == {"m1": 3} and s["strictness"] == {"strict": 3}
+    assert s["avg_scores"] == {"IC1": 0.8, "IC2": 0.55}
+    src = {x["source_file"]: x for x in s["sources"]}
+    assert src["s2"]["identified"] == 3 and src["s2"]["duplicates"] == 1 and src["s2"]["excluded"] == 1
+
+    r = asyncio.run(web.report_results(limit=2))
+    assert r["total"] == 4 and [x["id"] for x in r["items"]] == ["a", "b"]     # Include first, then Maybe
+    assert r["items"][0]["scores"] == {"IC1": 0.9, "IC2": 0.8} and r["criteria"] == ["IC1", "IC2"]
+    r2 = asyncio.run(web.report_results(offset=2, limit=2))
+    assert [x["id"] for x in r2["items"]] == ["c", "d"] and r2["has_more"] is False
+    assert r2["items"][0]["decision"] == "Exclude" and r2["items"][0]["human_reviewed"] is True
+    assert r2["items"][1]["decision"] == "Failed"
+    assert [x["id"] for x in asyncio.run(web.report_results(decision="maybe"))["items"]] == ["b"]
+    assert [x["id"] for x in asyncio.run(web.report_results(q="gam"))["items"]] == ["c"]

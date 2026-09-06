@@ -565,7 +565,7 @@ summary .help-btn { margin-left: 6px; }
 .tab-next { display: flex; justify-content: flex-end; margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-glass); }
 
 /* Ingestion dashboard */
-.ingest-stats { grid-template-columns: repeat(4, 1fr); }
+.ingest-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 @media (max-width: 900px) { .ingest-stats { grid-template-columns: repeat(2, 1fr); } }
 .table-wrap { overflow-x: auto; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
@@ -608,3 +608,46 @@ details[open] > .summary-row h3::before { transform: rotate(90deg); }
     color: var(--text-secondary); font-size: 1.3rem; line-height: 1; cursor: pointer; padding: 2px 6px;
 }
 .box-close:hover { color: var(--text-primary); }
+
+/* Reports dashboard */
+.report-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+@media (max-width: 900px) { .report-stats { grid-template-columns: repeat(2, 1fr); } }
+.tag.bad { color: var(--accent-red); border-color: rgba(239, 68, 68, 0.4); }
+.mono-cell { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; white-space: nowrap; }
+#report-results td:nth-child(3) { white-space: nowrap; }
+#report-sources td:first-child { white-space: nowrap; }
+
+/* PRISMA flow: three columns (stage label | main flow | side exclusions) */
+.prisma-flow { display: grid; grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr); gap: 14px 24px; align-items: start; }
+.flow-stage { display: flex; align-items: flex-start; height: 100%; }
+.flow-stage-label {
+    writing-mode: vertical-rl; transform: rotate(180deg);
+    font-size: 0.75rem; letter-spacing: 1px; text-transform: uppercase; color: var(--text-secondary);
+    border-right: 2px solid var(--accent-blue); padding: 6px 0; min-height: 80px;
+}
+.flow-main, .flow-side { position: relative; min-width: 0; }
+.flow-box {
+    border: 1px solid var(--border-strong); border-radius: 10px; padding: 12px 14px;
+    background: var(--surface-subtle); position: relative;
+}
+.flow-box.ok { border-color: var(--accent-green); }
+.flow-box.warn { border-color: var(--accent-yellow); }
+.flow-box.muted { opacity: 0.55; border-style: dashed; }
+.flow-box.side { border-style: solid; }
+.flow-title { font-weight: 600; font-size: 0.9rem; }
+.flow-n { font-size: 1.15rem; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.flow-line { font-size: 0.8rem; color: var(--text-secondary); margin-top: 3px; overflow-wrap: anywhere; }
+/* arrows: down from each main box, right from main to its side box */
+.flow-main + .flow-side:not(:empty)::before {
+    content: ""; position: absolute; left: -24px; top: 28px; width: 24px; height: 2px; background: var(--text-secondary);
+}
+.flow-main + .flow-side:not(:empty)::after {
+    content: ""; position: absolute; left: -8px; top: 24px; border: 5px solid transparent; border-left-color: var(--text-secondary);
+}
+.flow-main:not(.last)::after {
+    content: ""; position: absolute; left: 50%; bottom: -14px; width: 2px; height: 14px; background: var(--text-secondary);
+}
+.flow-main:not(.last)::before {
+    content: ""; position: absolute; left: calc(50% - 4px); bottom: -14px; border: 5px solid transparent; border-top-color: var(--text-secondary); z-index: 1;
+}
+@media (max-width: 800px) { .prisma-flow { grid-template-columns: 1fr; } .flow-stage { display: none; } .flow-main + .flow-side::before, .flow-main + .flow-side::after { display: none; } }

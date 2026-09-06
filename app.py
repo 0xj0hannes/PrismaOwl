@@ -624,6 +624,115 @@ async def submit_review(record_id: str, request: Request):
         return {"status": "success"}
     return JSONResponse({"error": "Not found"}, status_code=404)
 
+def _effective_decision(result: Dict[str, Any]) -> str:
+    """Human decision wins; a failed AI call counts as not screened."""
+    if not result:
+        return "Not screened"
+    if "Failed after" in (result.get("notes") or "") and not result.get("human_reviewed"):
+        return "Failed"
+    return result.get("final_decision") or result.get("decision") or "Not screened"
+
+
+def _report_rows() -> Dict[str, Any]:
+    records = get_all_records()
+    results = get_all_screening_results()
+    unique = [r for r in records if not r.get("is_duplicate")]
+    rows = []
+    for r in unique:
+        res = results.get(r["id"], {})
+        decision = _effective_decision(res)
+        scores = {k: (v or {}).get("score") for k, v in (res.get("criteria") or {}).items()} if res else {}
+        rows.append({
+            "id": r["id"], "title": r.get("title", ""), "year": r.get("year"), "authors": r.get("authors", ""),
+            "doi": r.get("doi"), "source_file": r.get("source_file", ""),
+            "decision": decision, "ai_decision": res.get("decision", "") if res else "",
+            "human_reviewed": bool(res.get("human_reviewed")) if res else False,
+            "unmet_criteria": res.get("unmet_criteria", "") if res else "",
+            "scores": scores, "model_version": res.get("model_version", "") if res else "",
+            "strictness": res.get("strictness", "") if res else "",
+            "notes": res.get("notes", "") if res else "",
+        })
+    return {"records": records, "unique": unique, "results": results, "rows": rows}
+
+
+@app.get("/api/report/summary")
+async def report_summary():
+    """Counts for the PRISMA 2020 flow diagram and the dashboard tiles."""
+    d = _report_rows()
+    rows = d["rows"]
+    counts = {"identified": len(d["records"]), "duplicates_removed": len(d["records"]) - len(d["unique"]),
+              "unique": len(d["unique"])}
+    by_decision: Dict[str, int] = {}
+    for row in rows:
+        by_decision[row["decision"]] = by_decision.get(row["decision"], 0) + 1
+    counts.update({
+        "included": by_decision.get("Include", 0), "excluded": by_decision.get("Exclude", 0),
+        "maybe": by_decision.get("Maybe", 0), "not_screened": by_decision.get("Not screened", 0),
+        "failed": by_decision.get("Failed", 0),
+        "human_reviewed": sum(1 for r in rows if r["human_reviewed"]),
+    })
+    counts["screened"] = counts["included"] + counts["excluded"] + counts["maybe"]
+    # Identification by source (all records, duplicates included = what each source contributed).
+    sources: Dict[str, Dict[str, int]] = {}
+    for r in d["records"]:
+        src = r.get("source_file") or "(unknown)"
+        row = sources.setdefault(src, {"identified": 0, "duplicates": 0, "included": 0, "excluded": 0,
+                                       "maybe": 0, "not_screened": 0})
+        row["identified"] += 1
+        if r.get("is_duplicate"):
+            row["duplicates"] += 1
+    for row in rows:
+        src = row["source_file"] or "(unknown)"
+        key = {"Include": "included", "Exclude": "excluded", "Maybe": "maybe"}.get(row["decision"], "not_screened")
+        sources[src][key] += 1
+    unmet: Dict[str, int] = {}
+    for row in rows:
+        if row["decision"] in ("Exclude", "Maybe"):
+            key = row["unmet_criteria"] or "None/Other"
+            unmet[key] = unmet.get(key, 0) + 1
+    models: Dict[str, int] = {}
+    levels: Dict[str, int] = {}
+    for row in rows:
+        if row["decision"] in ("Include", "Exclude", "Maybe") and row["model_version"]:
+            models[row["model_version"]] = models.get(row["model_version"], 0) + 1
+            lv = normalize_strictness(row["strictness"])
+            levels[lv] = levels.get(lv, 0) + 1
+    criteria = load_config().get("CRITERIA", {})
+    avg_scores = {}
+    for key in criteria:
+        vals = [row["scores"].get(key) for row in rows if isinstance(row["scores"].get(key), (int, float))]
+        avg_scores[key] = round(sum(vals) / len(vals), 3) if vals else None
+    return {"counts": counts,
+            "sources": [{"source_file": k, **v} for k, v in sorted(sources.items())],
+            "unmet_criteria": sorted(({"criteria": k, "count": v} for k, v in unmet.items()),
+                                     key=lambda x: -x["count"]),
+            "models": models, "strictness": levels,
+            "criteria": {k: v.get("name", "") for k, v in criteria.items()}, "avg_scores": avg_scores,
+            "generated": datetime.now().isoformat(timespec="seconds")}
+
+
+@app.get("/api/report/results")
+async def report_results(offset: int = 0, limit: int = 30, decision: str = "", q: str = ""):
+    """Every unique record with its screening outcome, paged; optional
+    decision filter (Include | Exclude | Maybe | Not screened | Failed) and
+    free-text search over title / authors / DOI / id."""
+    rows = _report_rows()["rows"]
+    if decision:
+        rows = [r for r in rows if r["decision"].lower() == decision.strip().lower()]
+    if q.strip():
+        needle = q.strip().lower()
+        rows = [r for r in rows if needle in " ".join(
+            str(r.get(f) or "") for f in ("title", "authors", "doi", "id", "source_file")).lower()]
+    order = {"Include": 0, "Maybe": 1, "Exclude": 2, "Failed": 3, "Not screened": 4}
+    rows.sort(key=lambda r: (order.get(r["decision"], 9), (r["title"] or "").lower()))
+    offset = max(0, int(offset))
+    limit = max(1, min(int(limit), 500))
+    page = rows[offset:offset + limit]
+    return {"total": len(rows), "offset": offset, "limit": limit, "items": page,
+            "has_more": offset + len(page) < len(rows),
+            "criteria": list(load_config().get("CRITERIA", {}).keys())}
+
+
 @app.get("/api/report")
 async def download_report():
     # To use existing generate_report, we need an intermediate json file since the CLI function expects a JSON file path

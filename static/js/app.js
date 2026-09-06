@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tabId === 'strategy') { loadHarvestSources().then(() => { loadHarvestRuns(); pollHarvestJobs(); }); }
         if (tabId === 'criteria') { if (!criteriaPending) loadCriteriaEditor(); refreshCriteriaResetBox(); setStatus($('reset-status'), ''); }
         if (tabId === 'chat') loadChatScopes();
+        if (tabId === 'report') loadReport();
     }
     navLinks.forEach(link => link.addEventListener('click', () => showTab(link.getAttribute('data-tab'))));
     document.querySelectorAll('[data-goto]').forEach(b => b.addEventListener('click', () => showTab(b.getAttribute('data-goto'))));
@@ -858,6 +859,106 @@ document.addEventListener('DOMContentLoaded', () => {
     $('btn-download-report').addEventListener('click', () => { window.location.href = '/api/report'; });
 
     // ------------------------------------------------------------------
+    // Reports dashboard: PRISMA flow + every result
+    // ------------------------------------------------------------------
+    const REPORT_PAGE = 30;
+    const decisionBadge = (row) => {
+        const cls = { Include: 'ok', Exclude: 'bad', Maybe: 'warn', Failed: 'bad', 'Not screened': 'muted' }[row.decision] || 'muted';
+        const icon = { Include: '✔', Exclude: '✖', Maybe: '?', Failed: '!', 'Not screened': '·' }[row.decision] || '';
+        const human = row.human_reviewed ? ' <span class="tag muted" title="Decided by a human reviewer">human</span>' : '';
+        const ai = row.human_reviewed && row.ai_decision && row.ai_decision !== row.decision
+            ? ` <span class="meta">(AI: ${esc(row.ai_decision)})</span>` : '';
+        return `<span class="tag ${cls}">${icon} ${esc(row.decision)}</span>${human}${ai}`;
+    };
+
+    function flowBox(title, n, opts = {}) {
+        const cls = 'flow-box' + (opts.side ? ' side' : '') + (opts.muted ? ' muted' : '') + (opts.kind ? ' ' + opts.kind : '');
+        const lines = (opts.lines || []).map(l => `<div class="flow-line">${l}</div>`).join('');
+        return `<div class="${cls}"><div class="flow-title">${title}</div><div class="flow-n">${n === null ? 'n = ?' : 'n = ' + n}</div>${lines}</div>`;
+    }
+    function renderPrismaFlow(s) {
+        const c = s.counts;
+        const perSource = s.sources.map(x => `${esc(x.source_file)} (n = ${x.identified})`);
+        const el = $('prisma-flow');
+        el.innerHTML = `
+            <div class="flow-stage"><span class="flow-stage-label">Identification</span></div>
+            <div class="flow-main">${flowBox('Records identified from databases', c.identified, { lines: perSource.slice(0, 8).concat(perSource.length > 8 ? [`… ${perSource.length - 8} more sources`] : []) })}</div>
+            <div class="flow-side">${flowBox('Records removed before screening', c.duplicates_removed, { side: true, lines: [`Duplicate records removed (n = ${c.duplicates_removed})`] })}</div>
+
+            <div class="flow-stage"><span class="flow-stage-label">Screening</span></div>
+            <div class="flow-main">${flowBox('Records screened (title / abstract)', c.screened, { lines: c.not_screened || c.failed ? [`Not yet screened (n = ${c.not_screened + c.failed})`] : [] })}</div>
+            <div class="flow-side">${flowBox('Records excluded', c.excluded, { side: true, lines: s.unmet_criteria.slice(0, 5).map(u => `${esc(u.criteria)}: ${u.count}`) })}</div>
+
+            <div class="flow-stage"></div>
+            <div class="flow-main">${flowBox('Records awaiting human decision (Maybe)', c.maybe, { kind: 'warn', lines: [`Human reviewed so far (n = ${c.human_reviewed})`] })}</div>
+            <div class="flow-side"></div>
+
+            <div class="flow-stage"></div>
+            <div class="flow-main">${flowBox('Reports sought for retrieval', null, { muted: true, lines: ['Outside this tool'] })}</div>
+            <div class="flow-side">${flowBox('Reports not retrieved', null, { side: true, muted: true })}</div>
+
+            <div class="flow-stage"></div>
+            <div class="flow-main">${flowBox('Reports assessed for eligibility (full text)', null, { muted: true, lines: ['Outside this tool'] })}</div>
+            <div class="flow-side">${flowBox('Reports excluded, with reasons', null, { side: true, muted: true })}</div>
+
+            <div class="flow-stage"><span class="flow-stage-label">Included</span></div>
+            <div class="flow-main last">${flowBox('Records included after title / abstract screening', c.included, { kind: 'ok', lines: ['Full-text eligibility still to be assessed'] })}</div>
+            <div class="flow-side"></div>`;
+    }
+
+    async function loadReportSummary() {
+        try {
+            const s = await api('/api/report/summary');
+            const c = s.counts;
+            const set = (id, v) => { $(id).textContent = v; };
+            set('rs-identified', c.identified); set('rs-duplicates', c.duplicates_removed); set('rs-screened', c.screened);
+            set('rs-included', c.included); set('rs-excluded', c.excluded); set('rs-maybe', c.maybe);
+            set('rs-pending', c.not_screened + c.failed); set('rs-human', c.human_reviewed);
+            $('report-generated').textContent = `Counts as of ${s.generated.replace('T', ' ')}. Decisions by a human reviewer override the AI decision.`
+                + (c.failed ? ` ${c.failed} record(s) failed screening and count as not yet screened.` : '');
+            renderPrismaFlow(s);
+            $('report-sources').querySelector('tbody').innerHTML = s.sources.map(x =>
+                `<tr><td>${esc(x.source_file)}</td><td class="num">${x.identified}</td><td class="num">${x.duplicates}</td>
+                 <td class="num">${x.included}</td><td class="num">${x.excluded}</td><td class="num">${x.maybe}</td><td class="num">${x.not_screened}</td></tr>`
+            ).join('') || '<tr><td colspan="7" class="info-text">No records yet.</td></tr>';
+            $('report-unmet').querySelector('tbody').innerHTML = s.unmet_criteria.map(u =>
+                `<tr><td>${esc(u.criteria)}</td><td class="num">${u.count}</td></tr>`
+            ).join('') || '<tr><td colspan="2" class="info-text">Nothing excluded or pending yet.</td></tr>';
+            const models = Object.entries(s.models).map(([m, n]) => `${esc(m)} (${n})`).join(', ') || 'none yet';
+            const levels = Object.entries(s.strictness).map(([l, n]) => `${esc(l)} (${n})`).join(', ') || 'none yet';
+            const avg = Object.entries(s.avg_scores).map(([k, v]) => `${esc(k)} ${esc(s.criteria[k] || '')}: ${v == null ? '–' : v.toFixed(2)}`).join('<br>');
+            $('report-method').innerHTML = `<p>Screening model(s): ${models}</p><p>Decision strictness: ${levels}</p><p class="mt-10">Mean criterion score across screened records:<br>${avg || '–'}</p>`;
+        } catch (e) { $('report-generated').textContent = 'Could not load the summary: ' + e.message; }
+    }
+
+    async function loadReportResults(page = 1) {
+        const decision = $('report-filter').value;
+        const q = $('report-search').value.trim();
+        try {
+            const d = await api(`/api/report/results?offset=${(page - 1) * REPORT_PAGE}&limit=${REPORT_PAGE}`
+                + `&decision=${encodeURIComponent(decision)}&q=${encodeURIComponent(q)}`);
+            const body = $('report-results').querySelector('tbody');
+            body.innerHTML = d.items.map(r => `<tr>
+                <td>${esc(r.title)}<span class="meta">${esc(r.year || '')}${r.doi ? ' · ' + esc(r.doi) : ''}${r.authors ? ' · ' + esc(r.authors.slice(0, 60)) : ''}</span></td>
+                <td>${esc(r.source_file)}</td>
+                <td>${decisionBadge(r)}</td>
+                <td>${esc(r.unmet_criteria || '')}</td>
+                <td class="mono-cell">${d.criteria.map(k => `${esc(k)} ${r.scores[k] == null ? '–' : Number(r.scores[k]).toFixed(2)}`).join('<br>')}</td>
+                <td><span class="meta">${esc(r.model_version || '')}${r.strictness ? ' · ' + esc(r.strictness) : ''}</span>${r.decision === 'Failed' ? `<span class="meta">${esc((r.notes || '').slice(0, 120))}</span>` : ''}</td></tr>`
+            ).join('') || '<tr><td colspan="6" class="info-text">No records match.</td></tr>';
+            $('report-results-total').textContent = d.total;
+            const first = d.total ? d.offset + 1 : 0, last = Math.min(d.offset + d.items.length, d.total);
+            $('report-results-range').textContent = d.total ? `Showing ${first}\u2013${last} of ${d.total} records.` : '';
+            renderPager($('report-pager'), page, Math.ceil(d.total / REPORT_PAGE), loadReportResults);
+        } catch (e) { $('report-results-range').textContent = 'Could not load results: ' + e.message; }
+    }
+    function loadReport() { loadReportSummary(); loadReportResults(1); }
+    $('btn-report-refresh').addEventListener('click', loadReport);
+    $('report-filter').addEventListener('change', () => loadReportResults(1));
+    let reportSearchTimer = null;
+    $('report-search').addEventListener('input', () => { clearTimeout(reportSearchTimer); reportSearchTimer = setTimeout(() => loadReportResults(1), 350); });
+
+    // ------------------------------------------------------------------
     // Chat
     // ------------------------------------------------------------------
     const chatWindow = $('chat-window');
@@ -1013,7 +1114,7 @@ document.addEventListener('DOMContentLoaded', () => {
         report: {
             title: 'PRISMA reporting',
             body: `
-<p>The CSV contains one row per screened record with the decision, and for each criterion its score, evidence and rationale, plus the model version. The summary counts (identified, duplicates removed, screened, included, excluded, pending review) feed the <strong>PRISMA 2020 flow diagram</strong>.</p>
+<p>The dashboard shows the <strong>PRISMA 2020 flow</strong> as performed here (records identified per source, duplicates removed, screened, excluded, awaiting human decision, included) with the full-text steps greyed because they happen outside this tool, plus counts per source, the unmet criteria behind exclusions, the models and strictness used, and a table of every record. The CSV contains one row per record with the decision, and for each criterion its score, evidence and rationale, plus the model version and strictness.</p>
 <p>Remember that this tool covers identification and title/abstract screening only. Full-text retrieval and eligibility assessment, risk-of-bias appraisal and synthesis are separate steps you carry out and report yourself.</p>`,
             items: '<strong>PRISMA 2020</strong> item 16a (study selection results and flow diagram) and item 27 (availability of data and materials: the CSV and <code>screening.log</code> can be archived as supplementary material).',
         },
