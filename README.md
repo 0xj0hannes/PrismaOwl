@@ -53,13 +53,14 @@ git clone https://github.com/0xj0hannes/PrismaOwl.git
 cd PrismaOwl
 
 python3 -m venv .venv            # create the virtual environment (once)
-source .venv/bin/activate        # macOS / Linux
+source .venv/bin/activate        # macOS / Linux (bash, zsh)
+# source .venv/bin/activate.fish # fish shell
 # .venv\Scripts\activate         # Windows (PowerShell or cmd)
 
 pip install -r requirements.txt
 ```
 
-Activate the environment (`source .venv/bin/activate`) in every new terminal before running the commands below. If you prefer not to activate it, prefix commands with `.venv/bin/python` instead of `python3`.
+Activate the environment in every new terminal before running the commands below (use the `activate.fish` script if your shell is fish; the plain `activate` script is bash/zsh syntax and fails there). If you prefer not to activate it, prefix commands with `.venv/bin/python` instead of `python3`.
 
 ### 3. Environment Setup
 Create a `.env` file in the root directory. With OrcaRouter:
