@@ -46,11 +46,20 @@ This tool takes a complementary, zero-shot approach: it sends each record to an 
 > **Note on Gemini key types:** Keys created in AI Studio today are issued as the newer *auth key* type, so a fresh key already meets current requirements. If you are reusing an older *Standard* key, migrate it — [Google's docs](https://ai.google.dev/gemini-api/docs/api-key) state the Gemini API will reject Standard keys from September 2026, and unrestricted keys left dormant for an extended period are blocked (shown with a **Blocked** tag in AI Studio). If screening suddenly fails on a key that used to work, check this first.
 
 ### 2. Installation
+Clone the repository and install the dependencies into a virtual environment so they stay isolated from your system Python:
+
 ```bash
-git clone <repository-url>
+git clone https://github.com/0xj0hannes/PrismaOwl.git
 cd PrismaOwl
+
+python3 -m venv .venv            # create the virtual environment (once)
+source .venv/bin/activate        # macOS / Linux
+# .venv\Scripts\activate         # Windows (PowerShell or cmd)
+
 pip install -r requirements.txt
 ```
+
+Activate the environment (`source .venv/bin/activate`) in every new terminal before running the commands below. If you prefer not to activate it, prefix commands with `.venv/bin/python` instead of `python3`.
 
 ### 3. Environment Setup
 Create a `.env` file in the root directory. With OrcaRouter:
@@ -107,9 +116,9 @@ The system's entire stack—including the LLM Prompts, the CSV Export Analytics,
 
 ## 🌐 Web GUI Usage (Recommended)
 
-To launch the full interactive web experience:
+To launch the full interactive web experience (with the virtual environment activated):
 ```bash
-.venv/bin/uvicorn app:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
 Then navigate to `http://127.0.0.1:8000` in your browser.
 
