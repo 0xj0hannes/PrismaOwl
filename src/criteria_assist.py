@@ -1,7 +1,7 @@
 """
 LLM-assisted inclusion-criteria drafting.
 
-Produces (or refines) a dictionary in exactly the ``criteria.json`` shape used
+Produces (or refines) a dictionary in exactly the criteria shape used
 by the rest of the pipeline::
 
     {"IC1": {"name", "definition", "signals", "negative_indicators"}, ...}

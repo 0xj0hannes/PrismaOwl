@@ -108,32 +108,56 @@ def update_env(values: dict, path: str = ENV_PATH) -> list:
     return list(values)
 
 
-def load_criteria(path: str = CRITERIA_PATH) -> dict:
+# The inclusion criteria and the search strategy are project documents stored
+# in the SQLite database (documents table) next to the corpus, harvest runs
+# and screening results. Pass an explicit ``path`` to read/write a JSON file
+# instead (exports, the deprecated CLI). CRITERIA_PATH / SEARCH_STRATEGY_PATH
+# only matter for the one-time import of pre-database installs (see db).
+
+def _read_json_file(path: str) -> dict:
     if os.path.exists(path):
-        with open(path, 'r') as f:
-            return json.load(f)
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
     return {}
 
 
-def save_criteria(criteria: dict, path: str = CRITERIA_PATH) -> None:
-    """Persist criteria.json. Keys are kept in insertion order so the prompt
+def _write_json_file(data: dict, path: str) -> None:
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+
+def load_criteria(path: str = None) -> dict:
+    if path:
+        return _read_json_file(path)
+    from . import db
+    return db.get_document("criteria") or {}
+
+
+def save_criteria(criteria: dict, path: str = None) -> None:
+    """Persist the criteria. Keys are kept in insertion order so the prompt
     and CSV column order follow what the user sees in the editor."""
-    with open(path, 'w') as f:
-        json.dump(criteria, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    if path:
+        _write_json_file(criteria, path)
+        return
+    from . import db
+    db.save_document("criteria", criteria)
 
 
-def load_search_strategy(path: str = SEARCH_STRATEGY_PATH) -> dict:
-    if os.path.exists(path):
-        with open(path, 'r') as f:
-            return json.load(f)
-    return {}
+def load_search_strategy(path: str = None) -> dict:
+    if path:
+        return _read_json_file(path)
+    from . import db
+    return db.get_document("search_strategy") or {}
 
 
-def save_search_strategy(strategy: dict, path: str = SEARCH_STRATEGY_PATH) -> None:
-    with open(path, 'w') as f:
-        json.dump(strategy, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+def save_search_strategy(strategy: dict, path: str = None) -> None:
+    if path:
+        _write_json_file(strategy, path)
+        return
+    from . import db
+    db.save_document("search_strategy", strategy)
 
 
 def load_config():

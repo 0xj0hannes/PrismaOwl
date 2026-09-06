@@ -585,6 +585,28 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { console.error(e); }
     }
 
+    // Import criteria from a JSON export (replaces the current set).
+    $('btn-criteria-import').addEventListener('click', () => $('criteria-import-file').click());
+    $('criteria-import-file').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        if (!confirm(`Replace the current criteria with the contents of ${file.name}?`)) return;
+        const st = $('criteria-save-status');
+        setStatus(st, 'Importing…');
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+            const res = await fetch('/api/criteria/import', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            renderCriteriaEditor(data.criteria);
+            criteriaPending = false;
+            setStatus(st, `Imported ${Object.keys(data.criteria).length} criteria from ${file.name}.`, 'success');
+            loadCriteria();
+        } catch (err) { setStatus(st, 'Import failed: ' + err.message, 'error'); }
+    });
+
     $('btn-add-criterion').addEventListener('click', () => {
         const n = criteriaEditor.querySelectorAll('.criterion-card').length + 1;
         renderCriterion(`IC${n}`, {});
@@ -1069,7 +1091,7 @@ document.addEventListener('DOMContentLoaded', () => {
         strategy: {
             title: 'Search Strategy',
             body: `
-<p>This tab turns your research question into <strong>concept blocks</strong> (groups of synonyms combined with OR) and one ready-to-paste <strong>Boolean query per database</strong>, each in that database's own syntax. The LLM drafts it; your edits are saved automatically to <code>search_strategy.json</code>, which the CLI reads too.</p>
+<p>This tab turns your research question into <strong>concept blocks</strong> (groups of synonyms combined with OR) and one ready-to-paste <strong>Boolean query per database</strong>, each in that database's own syntax. The LLM drafts it; your edits are saved automatically to the database; <em>Export JSON</em> downloads the strategy for the protocol.</p>
 <p>A systematic review must report the <em>full</em> search strategy for every database so that others can repeat the search. Keep the saved file, and note the date you ran each query.</p>
 <ul>
 <li>Edit the concept blocks yourself and press <em>Rebuild from concepts</em> to regenerate every database query without an LLM call; press <em>Refine with AI</em> (the same button, once a strategy exists) when you want the model to propose new synonyms or apply your feedback. <em>Start over</em> discards everything and generates again from the research question only.</li>
@@ -1086,7 +1108,7 @@ document.addEventListener('DOMContentLoaded', () => {
 <li><strong>Rationale</strong>: why these concepts and terms were chosen. Check it to confirm the model understood the question, then reuse it when you justify the search in your methods section or protocol.</li>
 <li><strong>Limitations</strong>: known gaps of the search, for example synonyms not covered, databases without truncation, language or date restrictions. These belong in the limitations paragraph of your review.</li>
 </ul>
-<p>Both fields are editable and are saved with the strategy.</p>`,
+<p>Both fields are editable and are saved with the strategy; <em>Export JSON</em> gives you the whole strategy as a file for the protocol.</p>`,
             items: '<strong>PRISMA 2020</strong> item 7 (search strategy, so readers can judge its comprehensiveness) and item 23c (limitations of the review processes used). Documenting the reasoning behind the search also supports PRISMA-S.',
         },
         harvest: {

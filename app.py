@@ -55,11 +55,33 @@ async def get_criteria():
     return config.get("CRITERIA", {})
 
 
+@app.get("/api/criteria/export")
+async def export_criteria():
+    """The current criteria as a downloadable JSON file (for the protocol,
+    for sharing, or to import into another review)."""
+    return JSONResponse(load_config().get("CRITERIA", {}),
+                        headers={"Content-Disposition": 'attachment; filename="criteria.json"'})
+
+
+@app.post("/api/criteria/import")
+async def import_criteria(file: UploadFile = File(...)):
+    """Replace the criteria with an uploaded JSON file (same shape as the export)."""
+    if is_screening_running:
+        return JSONResponse({"error": "Stop screening before changing criteria."}, status_code=409)
+    try:
+        criteria = validate_criteria(json.loads((await file.read()).decode("utf-8")))
+    except (ValueError, UnicodeDecodeError) as e:
+        return JSONResponse({"error": f"Not a valid criteria file: {e}"}, status_code=400)
+    save_criteria(criteria)
+    screening_module.reload_config()
+    return {"status": "success", "criteria": criteria}
+
+
 @app.put("/api/criteria")
 async def put_criteria(request: Request):
-    """Replace criteria.json with the editor's content. The screening module's
-    cached config is refreshed so the next screened record uses the new
-    criteria; results screened under the old criteria are left untouched."""
+    """Replace the stored criteria with the editor's content. The screening
+    module's cached config is refreshed so the next screened record uses the
+    new criteria; results screened under the old criteria are left untouched."""
     if is_screening_running:
         return JSONResponse({"error": "Stop screening before editing criteria."}, status_code=409)
     try:
@@ -253,6 +275,14 @@ async def build_search_queries(request: Request):
             "concept_count": sum(1 for c in concepts if c["terms"])}
 
 
+@app.get("/api/search-strategy/export")
+async def export_search_strategy():
+    """The saved search strategy as a downloadable JSON file."""
+    strategy = load_search_strategy()
+    return JSONResponse(normalize_strategy(strategy) if strategy else {},
+                        headers={"Content-Disposition": 'attachment; filename="search_strategy.json"'})
+
+
 @app.put("/api/search-strategy")
 async def put_search_strategy(request: Request):
     strategy = normalize_strategy(await request.json())
@@ -441,7 +471,7 @@ def _duplicate_rows(records: List[Dict[str, Any]], offset: int, limit: int) -> D
 @app.delete("/api/ingest/all")
 async def delete_all_ingested():
     """Flush the corpus: all records, harvest runs and screening results.
-    criteria.json and search_strategy.json are untouched."""
+    The criteria and the search strategy are untouched."""
     if is_screening_running:
         return JSONResponse({"error": "Stop screening first."}, status_code=409)
     return {"status": "success", **clear_corpus()}

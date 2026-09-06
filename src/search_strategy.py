@@ -1,8 +1,9 @@
 """
 LLM-assisted search-strategy (query) builder.
 
-The strategy is a JSON document persisted at ``search_strategy.json`` in the
-project root (next to ``criteria.json``) and shared by the CLI and the web UI:
+The strategy is a JSON document stored in the app's SQLite database (the
+``documents`` table, key ``search_strategy``; see ``config.load_search_strategy``)
+and exportable as a file:
 
 {
   "research_question": "...",

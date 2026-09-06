@@ -255,3 +255,62 @@ def test_chat_endpoint_passes_focus_and_validates(web, monkeypatch):
     assert asyncio.run(web.chat_endpoint(_Req({"messages": [], "scope": "included"}))).status_code == 400
     assert asyncio.run(web.chat_endpoint(_Req({"messages": [{"role": "user", "content": "x"}], "scope": "bogus"}))).status_code == 400
     assert set(asyncio.run(web.chat_scope_counts())["scopes"]) == {"included", "included_maybe", "all_screened"}
+
+
+# ---------------------------------------------------------------------------
+# Criteria + search strategy stored in the database
+# ---------------------------------------------------------------------------
+
+def test_documents_round_trip_and_legacy_import(tmp_path, monkeypatch):
+    import src.config as cfgmod
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "docs.db"))
+    crit_file = tmp_path / "criteria.json"
+    strat_file = tmp_path / "search_strategy.json"
+    crit_file.write_text('{"IC1": {"name": "n", "definition": "d", "signals": "", "negative_indicators": ""}}')
+    strat_file.write_text('{"research_question": "rq", "concepts": []}')
+    monkeypatch.setattr(cfgmod, "CRITERIA_PATH", str(crit_file))
+    monkeypatch.setattr(cfgmod, "SEARCH_STRATEGY_PATH", str(strat_file))
+
+    db.init_db()                                   # imports both files once
+    assert cfgmod.load_criteria() == {"IC1": {"name": "n", "definition": "d", "signals": "", "negative_indicators": ""}}
+    assert cfgmod.load_search_strategy()["research_question"] == "rq"
+
+    cfgmod.save_criteria({"IC9": {"name": "x", "definition": "y"}})
+    crit_file.write_text('{"IC2": {"name": "changed on disk"}}')
+    db.init_db()                                   # a second start must not re-import over DB content
+    assert list(cfgmod.load_criteria()) == ["IC9"]
+    assert cfgmod.load_config()["CRITERIA"] == {"IC9": {"name": "x", "definition": "y"}}
+    # explicit paths still read/write files (exports, deprecated CLI)
+    cfgmod.save_criteria({"IC3": {"name": "f", "definition": "g"}}, path=str(tmp_path / "out.json"))
+    assert cfgmod.load_criteria(str(tmp_path / "out.json")) == {"IC3": {"name": "f", "definition": "g"}}
+
+
+def test_criteria_export_and_import_endpoints(web, monkeypatch):
+    import src.config as cfgmod
+    cfgmod.save_criteria({"IC1": {"name": "One", "definition": "D1", "signals": "", "negative_indicators": ""}})
+    monkeypatch.setattr(web.screening_module, "reload_config", lambda: None)
+    exported = asyncio.run(web.export_criteria())
+    assert exported.headers["content-disposition"].endswith('filename="criteria.json"')
+    assert json.loads(exported.body) == cfgmod.load_criteria()
+
+    class _Upload:
+        def __init__(self, data): self._d = data
+        async def read(self): return self._d
+    res = asyncio.run(web.import_criteria(_Upload(b'{"IC2": {"name": "Two", "definition": "D2"}}')))
+    assert list(res["criteria"]) == ["IC2"] and list(cfgmod.load_criteria()) == ["IC2"]
+    assert asyncio.run(web.import_criteria(_Upload(b'not json'))).status_code == 400
+    assert asyncio.run(web.import_criteria(_Upload(b'{"bad key!": {"name": "x", "definition": "y"}}'))).status_code == 400
+    monkeypatch.setattr(web, "is_screening_running", True)
+    assert asyncio.run(web.import_criteria(_Upload(b'{}'))).status_code == 409
+
+    cfgmod.save_search_strategy({"research_question": "rq", "concepts": [], "queries": {}})
+    out = asyncio.run(web.export_search_strategy())
+    assert json.loads(out.body)["research_question"] == "rq"
+
+
+def test_documents_work_before_init_db_and_without_data_dir(tmp_path, monkeypatch):
+    import src.config as cfgmod
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "fresh" / "nested" / "prisma.db"))
+    assert cfgmod.load_criteria() == {}          # no directory, no database, no table yet
+    cfgmod.save_criteria({"IC1": {"name": "n", "definition": "d"}})
+    assert list(cfgmod.load_criteria()) == ["IC1"]
