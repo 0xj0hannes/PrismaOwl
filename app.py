@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import tempfile
 
 from src.ingestion import load_bibtex
-from src.deduplication import deduplicate_records
+from src.deduplication import deduplicate_records, split_duplicates
 from src.models import Record, ScreeningResult, Dataset
 from src.screening import screen_record, is_fatal_error, fatal_error_hint, check_screening_setup
 from src.reporting import generate_report
@@ -353,6 +353,27 @@ async def harvest_download(name: str):
     return FileResponse(path, media_type="application/x-bibtex", filename=os.path.basename(path))
 
 
+def _ingest_records(new_records: List[Record]) -> Dict[str, Any]:
+    """Merge ``new_records`` into the SQLite corpus with global deduplication.
+
+    Every record is stored, duplicates included (flagged with ``is_duplicate``,
+    ``duplicate_of`` and ``duplicate_reason``), so the Ingestion dashboard can
+    list them and the PRISMA flow can report "records identified" versus
+    "duplicates removed". Screening only ever sees canonical records
+    (``get_unique_records``).
+    """
+    existing = [Record(**r) for r in get_all_records()]
+    canonical, duplicates = split_duplicates(existing + new_records)
+    for rec in existing + new_records:
+        save_record(rec.model_dump())
+    new_ids = {r.id for r in new_records}
+    new_dup = sum(1 for r in duplicates if r.id in new_ids)
+    return {"status": "success", "uploaded": len(new_records),
+            "new_unique": len(new_records) - new_dup, "new_duplicates": new_dup,
+            "total_unique_db": len(canonical), "total_duplicates_db": len(duplicates),
+            "total_records_db": len(canonical) + len(duplicates)}
+
+
 @app.post("/api/harvest/ingest/{name}")
 async def harvest_ingest(name: str):
     """Ingest a harvested .bib straight into the SQLite corpus (same
@@ -364,11 +385,59 @@ async def harvest_ingest(name: str):
     new_records = load_bibtex(path)
     if not new_records:
         return JSONResponse({"error": "No records in file."}, status_code=400)
-    existing_records = [Record(**r) for r in get_all_records()]
-    deduped_all = deduplicate_records(existing_records + new_records)
-    for rec in deduped_all:
-        save_record(rec.model_dump())
-    return {"status": "success", "uploaded": len(new_records), "total_unique_db": len(deduped_all)}
+    return _ingest_records(new_records)
+
+
+@app.post("/api/harvest/ingest-all")
+async def harvest_ingest_all():
+    """Ingest every harvested .bib file in one deduplication pass."""
+    os.makedirs(HARVEST_DIR, exist_ok=True)
+    names = sorted(n for n in os.listdir(HARVEST_DIR) if n.endswith(".bib"))
+    if not names:
+        return JSONResponse({"error": "No harvested .bib files found."}, status_code=400)
+    new_records, per_file = [], []
+    for name in names:
+        try:
+            loaded = load_bibtex(os.path.join(HARVEST_DIR, name))
+        except Exception as e:  # noqa: BLE001 - one broken file must not block the rest
+            per_file.append({"file": name, "records": 0, "error": str(e)})
+            continue
+        per_file.append({"file": name, "records": len(loaded)})
+        new_records.extend(loaded)
+    if not new_records:
+        return JSONResponse({"error": "No records found in the harvested files.", "files": per_file},
+                            status_code=400)
+    summary = _ingest_records(new_records)
+    summary["files"] = per_file
+    return summary
+
+
+@app.get("/api/ingest/stats")
+async def ingest_stats(limit: int = 500):
+    """Corpus dashboard: identified / unique / duplicate counts, per-source
+    breakdown and the list of duplicate records with what they duplicate."""
+    records = get_all_records()
+    by_id = {r["id"]: r for r in records}
+    dups = [r for r in records if r.get("is_duplicate")]
+    per_source: Dict[str, Dict[str, int]] = {}
+    for r in records:
+        src = r.get("source_file") or "(unknown)"
+        row = per_source.setdefault(src, {"records": 0, "duplicates": 0})
+        row["records"] += 1
+        if r.get("is_duplicate"):
+            row["duplicates"] += 1
+    dup_rows = []
+    for r in dups[:limit]:
+        canon = by_id.get(r.get("duplicate_of") or "", {})
+        dup_rows.append({
+            "id": r["id"], "title": r.get("title", ""), "year": r.get("year"), "doi": r.get("doi"),
+            "source_file": r.get("source_file", ""), "reason": r.get("duplicate_reason", ""),
+            "duplicate_of": r.get("duplicate_of"), "canonical_title": canon.get("title", ""),
+            "canonical_source": canon.get("source_file", ""),
+        })
+    return {"total_records": len(records), "unique": len(records) - len(dups), "duplicates": len(dups),
+            "sources": [{"source_file": k, **v} for k, v in sorted(per_source.items())],
+            "duplicate_list": dup_rows, "duplicate_list_truncated": len(dups) > limit}
 
 
 @app.delete("/api/harvest/files/{name}")
@@ -410,7 +479,7 @@ async def chat_endpoint(request: Request):
         return JSONResponse({"error": e.user_message}, status_code=400)
     return out
 
-from typing import List
+from typing import List, Any, Dict
 
 @app.post("/api/ingest")
 async def ingest_file(files: List[UploadFile] = File(...)):
@@ -434,19 +503,7 @@ async def ingest_file(files: List[UploadFile] = File(...)):
             
     if not new_records:
         return JSONResponse({"error": "No valid records found in uploaded files."}, status_code=400)
-        
-    # Pull existing records to perform global deduplication against new ones
-    existing_dicts = get_all_records()
-    existing_records = [Record(**r) for r in existing_dicts]
-    
-    all_records = existing_records + new_records
-    deduped_all = deduplicate_records(all_records)
-    
-    # Save to SQLite (INSERT OR REPLACE will update duplicate tags if necessary)
-    for rec in deduped_all:
-        save_record(rec.model_dump())
-        
-    return {"status": "success", "uploaded": len(new_records), "total_unique_db": len(deduped_all)}
+    return _ingest_records(new_records)
 
 @app.get("/api/records")
 async def get_records():

@@ -560,3 +560,17 @@ summary .help-btn { margin-left: 6px; }
 .help-ref strong { color: var(--text-primary); }
 .modal-footer .status-inline a { color: var(--accent-blue); }
 .modal-footer .btn-primary, .modal-footer .btn-outline { white-space: nowrap; flex-shrink: 0; }
+
+/* Next-step buttons at the bottom of every tab */
+.tab-next { display: flex; justify-content: flex-end; margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-glass); }
+
+/* Ingestion dashboard */
+.ingest-stats { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) { .ingest-stats { grid-template-columns: repeat(2, 1fr); } }
+.table-wrap { overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.data-table th, .data-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border-glass); vertical-align: top; }
+.data-table th { color: var(--text-secondary); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.data-table .meta { display: block; }
+.ingest-file-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border-glass); font-size: 0.88rem; }

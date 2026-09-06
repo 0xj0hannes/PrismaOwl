@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PrismaOwl</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=7">
+    <link rel="stylesheet" href="/static/css/style.css?v=8">
     <script>
         // Apply the saved theme before first paint to avoid a flash of the wrong theme.
         (function () {
@@ -136,6 +136,9 @@
                     <div id="harvest-jobs" class="mt-10"></div>
                     <div id="harvest-files" class="mt-10"></div>
                 </div>
+                <div class="tab-next">
+                    <button class="btn-primary" data-goto="ingest">Next: Ingestion →</button>
+                </div>
             </section>
 
             <!-- Ingestion Tab -->
@@ -144,15 +147,58 @@
                     <h2>Data Ingestion <button class="help-btn" type="button" data-help="ingest" aria-label="Help: what is this and how does it relate to PRISMA?" title="What is this?">?</button></h2>
                     <p>Upload your BibTeX files for automatic deduplication and parsing.</p>
                 </div>
-                <div class="card glass">
-                    <div class="upload-zone" id="upload-zone">
+                <div class="card glass wide mb-20">
+                    <div class="screen-stats ingest-stats">
+                        <div class="stat-box"><h3 id="ingest-stat-total">0</h3><span>Records identified</span></div>
+                        <div class="stat-box"><h3 id="ingest-stat-unique">0</h3><span>Unique (to screen)</span></div>
+                        <div class="stat-box"><h3 id="ingest-stat-dups">0</h3><span>Duplicates removed</span></div>
+                        <div class="stat-box"><h3 id="ingest-stat-sources">0</h3><span>Source files</span></div>
+                    </div>
+                    <details class="mt-20" id="ingest-sources-details">
+                        <summary class="info-text">Per source file</summary>
+                        <div class="table-wrap mt-10"><table class="data-table" id="ingest-sources-table">
+                            <thead><tr><th>Source file</th><th>Records</th><th>Duplicates</th><th>Unique</th></tr></thead>
+                            <tbody></tbody>
+                        </table></div>
+                    </details>
+                </div>
+
+                <div class="card glass wide mb-20">
+                    <div class="row-between">
+                        <h3>Harvested files</h3>
+                        <div class="btn-row">
+                            <button class="btn-success" id="btn-ingest-all">⬇ Ingest all harvested files</button>
+                            <span class="status-inline" id="ingest-all-status"></span>
+                        </div>
+                    </div>
+                    <p class="info-text mt-10" id="ingest-all-info">Files saved by <em>Run harvest</em> on the Search Strategy tab
+                        (<code>data/harvest/</code>) are merged into the corpus in one deduplication pass.</p>
+                    <div id="ingest-all-files" class="mt-10"></div>
+                </div>
+
+                <div class="card glass wide mb-20">
+                    <h3>Upload BibTeX exports</h3>
+                    <div class="upload-zone mt-10" id="upload-zone">
                         <span class="upload-icon">📁</span>
                         <p>Drag & Drop your <strong>.bib</strong> files here, or click to browse</p>
                         <input type="file" id="bib-upload" accept=".bib" multiple hidden>
                     </div>
                     <div class="status-msg" id="upload-status"></div>
-                    <p class="info-text mt-10">Files harvested on the <strong>Search Strategy</strong> tab can be ingested
-                        directly from there.</p>
+                </div>
+
+                <div class="card glass wide">
+                    <div class="row-between">
+                        <h3>Duplicate records <span class="tag" id="ingest-dups-tag">0</span></h3>
+                        <span class="info-text">Matched by DOI, or by normalised title + year + first author. Kept for the audit trail; never screened.</span>
+                    </div>
+                    <div class="table-wrap mt-10"><table class="data-table" id="ingest-dups-table">
+                        <thead><tr><th>Duplicate</th><th>Source</th><th>Reason</th><th>Kept record</th></tr></thead>
+                        <tbody></tbody>
+                    </table></div>
+                    <p class="info-text mt-10 hidden" id="ingest-dups-more"></p>
+                </div>
+                <div class="tab-next">
+                    <button class="btn-primary" data-goto="criteria">Next: Criteria →</button>
                 </div>
             </section>
 
@@ -203,6 +249,9 @@
                         <span class="status-inline" id="reset-status"></span>
                     </div>
                 </div>
+                <div class="tab-next">
+                    <button class="btn-primary" data-goto="screen">Next: Screening →</button>
+                </div>
             </section>
 
             <!-- Screening Tab -->
@@ -251,6 +300,9 @@
                         </div>
                     </div>
                 </div>
+                <div class="tab-next">
+                    <button class="btn-primary" data-goto="review">Next: Review →</button>
+                </div>
             </section>
 
             <!-- Review Tab -->
@@ -264,6 +316,9 @@
                         <p>Loading records for review...</p>
                     </div>
                 </div>
+                <div class="tab-next">
+                    <button class="btn-primary" data-goto="report">Next: Reports →</button>
+                </div>
             </section>
 
             <!-- Report Tab -->
@@ -275,6 +330,9 @@
                 <div class="card glass flex-center">
                     <button class="btn-primary" id="btn-download-report">Download CSV Report</button>
                     <p class="mt-10 info-text">This will create a final statistical report for your review analysis.</p>
+                </div>
+                <div class="tab-next">
+                    <button class="btn-primary" data-goto="chat">Next: Chat →</button>
                 </div>
             </section>
 
@@ -541,7 +599,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=10"></script>
+    <script src="/static/js/app.js?v=11"></script>
 </body>
 
 </html>

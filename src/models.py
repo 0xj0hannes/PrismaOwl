@@ -15,6 +15,7 @@ class Record(BaseModel):
     normalized_title: str = ""
     is_duplicate: bool = False
     duplicate_of: Optional[str] = None # ID of the canonical record
+    duplicate_reason: str = ""         # "DOI match (...)" or "Title + Year + Author match"
 
 class CriterionResult(BaseModel):
     score: float = 0.0

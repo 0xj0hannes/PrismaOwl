@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
         navLinks.forEach(l => l.classList.toggle('active', l.getAttribute('data-tab') === tabId));
         tabPanes.forEach(p => p.classList.toggle('active', p.id === tabId));
         if (tabId === 'screen') updateScreenStats();
+        if (tabId === 'ingest') loadIngestStats();
         if (tabId === 'review') loadReviews();
         if (tabId === 'strategy') { loadHarvestSources().then(() => { loadHarvestFiles(); pollHarvestJobs(); }); }
         if (tabId === 'criteria') { if (!criteriaDirty) loadCriteriaEditor(); }
@@ -69,7 +70,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/ingest', { method: 'POST', body: formData });
             const data = await res.json();
             if (res.ok) {
-                uploadStatus.innerHTML = `<span class="success">Success! Loaded ${data.uploaded} records (Total Unique Database size: ${data.total_unique_db}).</span>`;
+                uploadStatus.innerHTML = `<span class="success">Loaded ${data.uploaded} records: ${data.new_unique} new unique, ${data.new_duplicates} duplicates of records already in the corpus. Corpus: ${data.total_unique_db} unique.</span>`;
+                loadIngestStats();
             } else {
                 uploadStatus.innerHTML = `<span class="error">Error: ${esc(data.error)}</span>`;
             }
@@ -77,6 +79,58 @@ document.addEventListener('DOMContentLoaded', () => {
             uploadStatus.innerHTML = `<span class="error">Network error.</span>`;
         }
     }
+
+    // ------------------------------------------------------------------
+    // Ingestion dashboard + "ingest all harvested files"
+    // ------------------------------------------------------------------
+    async function loadIngestStats() {
+        try {
+            const d = await api('/api/ingest/stats');
+            $('ingest-stat-total').textContent = d.total_records;
+            $('ingest-stat-unique').textContent = d.unique;
+            $('ingest-stat-dups').textContent = d.duplicates;
+            $('ingest-stat-sources').textContent = d.sources.length;
+            $('ingest-dups-tag').textContent = d.duplicates;
+            const srcBody = $('ingest-sources-table').querySelector('tbody');
+            srcBody.innerHTML = d.sources.map(s =>
+                `<tr><td>${esc(s.source_file)}</td><td class="num">${s.records}</td><td class="num">${s.duplicates}</td><td class="num">${s.records - s.duplicates}</td></tr>`
+            ).join('') || '<tr><td colspan="4" class="info-text">No records yet.</td></tr>';
+            const dupBody = $('ingest-dups-table').querySelector('tbody');
+            dupBody.innerHTML = d.duplicate_list.map(r => `<tr>
+                <td>${esc(r.title)}<span class="meta">${esc(r.year || '')}${r.doi ? ' · ' + esc(r.doi) : ''}</span></td>
+                <td>${esc(r.source_file)}</td>
+                <td>${esc(r.reason || '')}</td>
+                <td>${esc(r.canonical_title)}<span class="meta">${esc(r.canonical_source)}</span></td></tr>`
+            ).join('') || '<tr><td colspan="4" class="info-text">No duplicates detected.</td></tr>';
+            const more = $('ingest-dups-more');
+            more.classList.toggle('hidden', !d.duplicate_list_truncated);
+            if (d.duplicate_list_truncated) more.textContent = `Showing the first ${d.duplicate_list.length} of ${d.duplicates} duplicates.`;
+        } catch (e) { console.error('Failed to load ingestion stats', e); }
+        try {
+            const f = await api('/api/harvest/files');
+            const box = $('ingest-all-files');
+            $('btn-ingest-all').disabled = !f.files.length;
+            box.innerHTML = f.files.length
+                ? f.files.map(x => `<div class="ingest-file-row"><span>${esc(x.name)}</span><span class="meta">${(x.size / 1024).toFixed(1)} KB · ${esc(x.modified.replace('T', ' '))}</span></div>`).join('')
+                : '<p class="info-text">No harvested files yet. Run a query on the Search Strategy tab.</p>';
+        } catch (_) { /* ignore */ }
+    }
+
+    $('btn-ingest-all').addEventListener('click', async () => {
+        const btn = $('btn-ingest-all');
+        const st = $('ingest-all-status');
+        btn.disabled = true;
+        setStatus(st, 'Ingesting all harvested files…');
+        try {
+            const r = await postJSON('/api/harvest/ingest-all', {});
+            const failed = r.files.filter(x => x.error);
+            setStatus(st, `Read ${r.uploaded} records from ${r.files.length} file(s): ${r.new_unique} new unique, ${r.new_duplicates} duplicates. Corpus: ${r.total_unique_db} unique.`
+                + (failed.length ? ` ${failed.length} file(s) could not be parsed.` : ''), failed.length ? 'error' : 'success');
+            loadIngestStats();
+        } catch (e) {
+            setStatus(st, 'Error: ' + e.message, 'error');
+        } finally { btn.disabled = false; }
+    });
 
     // ------------------------------------------------------------------
     // Search Strategy
@@ -327,7 +381,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     setStatus(st, 'Ingesting…');
                     try {
                         const r = await postJSON(`/api/harvest/ingest/${encodeURIComponent(f.name)}`, {});
-                        setStatus(st, `Added ${r.uploaded} (corpus now ${r.total_unique_db} unique)`, 'success');
+                        setStatus(st, `Read ${r.uploaded}: ${r.new_unique} new unique, ${r.new_duplicates} duplicates (corpus now ${r.total_unique_db} unique)`, 'success');
                     } catch (err) { setStatus(st, 'Error: ' + err.message, 'error'); }
                     finally { e.target.disabled = false; }
                 });
@@ -1028,7 +1082,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     applyTheme(savedTheme());
-    if (location.hash === '#settings') openSettings();   // deep link, e.g. from the README
+    // Deep links: #settings opens the dialog, #<tab id> opens that tab.
+    const initialHash = location.hash.slice(1);
+    if (initialHash === 'settings') openSettings();
+    else if (initialHash && document.getElementById(initialHash)?.classList.contains('tab-pane')) showTab(initialHash);
 
     // ------------------------------------------------------------------
     // Initial Load

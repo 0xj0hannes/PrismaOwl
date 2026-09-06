@@ -138,12 +138,13 @@ python -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
 Then navigate to `http://127.0.0.1:8000` in your browser.
 
 - **Search Strategy**: Enter your research question, click *Generate with AI*, and get concept blocks plus one query per database. Edit the concept blocks and press *Rebuild from concepts* to regenerate every database query deterministically (AND between concepts, OR inside, each database's own syntax) without another LLM call; *Refine current with AI* is for when you want new synonyms. A year range in the scope notes ("2010 onwards", "2015-2024") is written into the Scopus, Web of Science and arXiv queries and applied as an API filter when harvesting OpenAlex, Semantic Scholar, Crossref and IEEE. Save, then press *Run harvest* on any database with an open API to fetch results as `.bib` (download it, or *Ingest into corpus* directly). ACM DL and Web of Science show the query to paste into their advanced search.
-- **Ingestion**: Drag-and-drop multiple `.bib` files (e.g. exports from Scopus/WoS/ACM). The backend normalizes and globally deduplicates the contents into the master SQL database.
+- **Ingestion**: A dashboard shows records identified, unique records to screen, duplicates removed and the per-source-file breakdown, plus the list of duplicate records with the reason (DOI match, or normalised title + year + first author) and the record that was kept. *Ingest all harvested files* merges everything in `data/harvest/` in one deduplication pass; you can also drag-and-drop `.bib` exports (Scopus, Web of Science, ACM…). Duplicates are stored but never screened, so the PRISMA flow numbers come straight from the corpus.
 - **Criteria**: Draft or refine inclusion criteria with the LLM, edit them in place, save to `criteria.json`. A *Reset screening results* button is there for when the criteria change mid-project.
 - **Screening**: Start the background AI task. Each result records which upstream model the router actually used.
 - **Review**: Adjudicate uncertain "Maybe" cases with rapid-action buttons.
 - **Reports**: Download the CSV PRISMA report.
 - **Chat**: Ask questions about the included records (themes, methods, which papers mention X…). Answers cite record IDs; switch the scope to include *Maybe* or all screened records.
+- Every tab ends with a **Next** button that walks you through the stages in order; `#<tab>` in the URL (e.g. `/#screen`) opens a tab directly and `#settings` opens the Settings dialog.
 - **⚙️ Settings** (bottom of the sidebar): choose the LLM provider (OrcaRouter or Gemini), enter API keys, pick the model per task from the provider's live model list, set retries/timeout and harvester credentials, and switch between dark, light and system theme. Everything except the theme is written to `.env`, so the CLI sees the same configuration.
 
 ---
