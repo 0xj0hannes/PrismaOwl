@@ -581,3 +581,15 @@ summary .help-btn { margin-left: 6px; }
 .summary-row h3::before { content: "\25B8"; display: inline-block; margin-right: 8px; color: var(--text-secondary); transition: transform 0.2s ease; }
 details[open] > .summary-row h3::before { transform: rotate(90deg); }
 #ingest-dups-table td:nth-child(2), #ingest-dups-table td:nth-child(3) { white-space: nowrap; }
+
+/* Search-engine style pager */
+.pager { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.pager-btn {
+    min-width: 32px; height: 32px; padding: 0 8px; border-radius: 6px;
+    border: 1px solid transparent; background: transparent; color: var(--accent-blue);
+    font: 600 0.85rem 'Inter', sans-serif; cursor: pointer; transition: all 0.15s ease;
+}
+.pager-btn:hover:not(:disabled) { background: var(--surface-subtle); border-color: var(--border-glass); }
+.pager-btn.current { background: var(--accent-blue); color: #fff; cursor: default; }
+.pager-btn:disabled:not(.current) { color: var(--text-secondary); opacity: 0.5; cursor: default; }
+.pager-gap { color: var(--text-secondary); padding: 0 2px; }

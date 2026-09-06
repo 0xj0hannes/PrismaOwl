@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PrismaOwl</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=10">
+    <link rel="stylesheet" href="/static/css/style.css?v=11">
     <script>
         // Apply the saved theme before first paint to avoid a flash of the wrong theme.
         (function () {
@@ -194,9 +194,9 @@
                             <thead><tr><th>Duplicate</th><th>Source</th><th>Reason</th><th>Kept record</th></tr></thead>
                             <tbody></tbody>
                         </table></div>
-                        <div class="btn-row mt-10">
+                        <div class="row-between mt-10">
                             <span class="info-text" id="ingest-dups-more"></span>
-                            <button class="btn-outline btn-sm hidden" id="btn-dups-more">Load 100 more</button>
+                            <nav class="pager" id="dups-pager" aria-label="Duplicate records pages"></nav>
                         </div>
                     </details>
                 </div>
@@ -598,7 +598,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=17"></script>
+    <script src="/static/js/app.js?v=18"></script>
 </body>
 
 </html>

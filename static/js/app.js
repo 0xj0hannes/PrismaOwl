@@ -85,7 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ------------------------------------------------------------------
     async function loadIngestStats() {
         try {
-            const d = await api('/api/ingest/stats?limit=100');
+            const d = await api(`/api/ingest/stats?limit=${DUP_PAGE}`);
             $('ingest-stat-total').textContent = d.total_records;
             $('ingest-stat-unique').textContent = d.unique;
             $('ingest-stat-dups').textContent = d.duplicates;
@@ -95,7 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
             srcBody.innerHTML = d.sources.map(s =>
                 `<tr><td>${esc(s.source_file)}</td><td class="num">${s.records}</td><td class="num">${s.duplicates}</td><td class="num">${s.records - s.duplicates}</td></tr>`
             ).join('') || '<tr><td colspan="4" class="info-text">No records yet.</td></tr>';
-            renderDuplicatePage(d.duplicate_list, 0, d.duplicates, d.duplicate_list_truncated);
+            renderDuplicatePage(d.duplicate_list, 0, d.duplicates);
         } catch (e) { console.error('Failed to load ingestion stats', e); }
         try {
             const r = await api('/api/harvest/runs');
@@ -111,34 +111,55 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (_) { /* ignore */ }
     }
 
-    // Duplicates table: paged, 100 rows at a time, appended with "Load more".
-    const DUP_PAGE = 100;
-    let dupLoaded = 0;
+    // Duplicates table: 30 rows per page with numbered pages (search-engine
+    // style: Prev, a window of up to 10 page numbers around the current one, Next).
+    const DUP_PAGE = 30;
     const dupRow = (r) => `<tr>
                 <td>${esc(r.title)}<span class="meta">${esc(r.year || '')}${r.doi ? ' · ' + esc(r.doi) : ''}</span></td>
                 <td>${esc(r.source_file)}</td>
                 <td>${esc(r.reason || '')}</td>
                 <td>${esc(r.canonical_title)}<span class="meta">${esc(r.canonical_source)}</span></td></tr>`;
-    function renderDuplicatePage(items, offset, total, hasMore) {
+    function renderDuplicatePage(items, offset, total) {
         const body = $('ingest-dups-table').querySelector('tbody');
-        if (offset === 0) body.innerHTML = '';
-        if (!total) body.innerHTML = '<tr><td colspan="4" class="info-text">No duplicates detected.</td></tr>';
-        else body.insertAdjacentHTML('beforeend', items.map(dupRow).join(''));
-        dupLoaded = offset + items.length;
-        $('ingest-dups-more').textContent = total ? `Showing ${Math.min(dupLoaded, total)} of ${total} duplicates.` : '';
-        const btn = $('btn-dups-more');
-        btn.classList.toggle('hidden', !hasMore);
-        btn.textContent = `Load ${Math.min(DUP_PAGE, Math.max(0, total - dupLoaded))} more`;
+        body.innerHTML = total ? items.map(dupRow).join('')
+            : '<tr><td colspan="4" class="info-text">No duplicates detected.</td></tr>';
+        const first = total ? offset + 1 : 0;
+        const last = Math.min(offset + items.length, total);
+        $('ingest-dups-more').textContent = total ? `Showing ${first}\u2013${last} of ${total} duplicates.` : '';
+        renderPager($('dups-pager'), Math.floor(offset / DUP_PAGE) + 1, Math.ceil(total / DUP_PAGE), loadDuplicatePage);
     }
-    $('btn-dups-more').addEventListener('click', async () => {
-        const btn = $('btn-dups-more');
-        btn.disabled = true;
+    async function loadDuplicatePage(page) {
         try {
-            const d = await api(`/api/ingest/duplicates?offset=${dupLoaded}&limit=${DUP_PAGE}`);
-            renderDuplicatePage(d.items, d.offset, d.total, d.has_more);
-        } catch (e) { $('ingest-dups-more').textContent = 'Could not load more: ' + e.message; }
-        finally { btn.disabled = false; }
-    });
+            const d = await api(`/api/ingest/duplicates?offset=${(page - 1) * DUP_PAGE}&limit=${DUP_PAGE}`);
+            renderDuplicatePage(d.items, d.offset, d.total);
+            $('ingest-dups-details').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (e) { $('ingest-dups-more').textContent = 'Could not load page: ' + e.message; }
+    }
+    function renderPager(nav, current, pages, go) {
+        nav.innerHTML = '';
+        if (pages <= 1) return;
+        const add = (label, page, opts = {}) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'pager-btn' + (opts.current ? ' current' : '');
+            b.textContent = label;
+            b.disabled = !!opts.disabled || !!opts.current;
+            if (opts.current) b.setAttribute('aria-current', 'page');
+            if (opts.label) b.setAttribute('aria-label', opts.label);
+            b.addEventListener('click', () => go(page));
+            nav.appendChild(b);
+        };
+        const gap = () => { const s = document.createElement('span'); s.className = 'pager-gap'; s.textContent = '…'; nav.appendChild(s); };
+        add('‹ Prev', current - 1, { disabled: current === 1, label: 'Previous page' });
+        const window_ = 10;
+        let start = Math.max(1, current - Math.floor(window_ / 2));
+        let end = Math.min(pages, start + window_ - 1);
+        start = Math.max(1, end - window_ + 1);
+        if (start > 1) { add('1', 1); if (start > 2) gap(); }
+        for (let p = start; p <= end; p++) add(String(p), p, { current: p === current });
+        if (end < pages) { if (end < pages - 1) gap(); add(String(pages), pages); }
+        add('Next ›', current + 1, { disabled: current === pages, label: 'Next page' });
+    }
 
     // ------------------------------------------------------------------
     // Search Strategy
