@@ -85,7 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ------------------------------------------------------------------
     async function loadIngestStats() {
         try {
-            const d = await api('/api/ingest/stats');
+            const d = await api('/api/ingest/stats?limit=100');
             $('ingest-stat-total').textContent = d.total_records;
             $('ingest-stat-unique').textContent = d.unique;
             $('ingest-stat-dups').textContent = d.duplicates;
@@ -104,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ).join('') || '<tr><td colspan="4" class="info-text">No duplicates detected.</td></tr>';
             const more = $('ingest-dups-more');
             more.classList.toggle('hidden', !d.duplicate_list_truncated);
-            if (d.duplicate_list_truncated) more.textContent = `Showing the first ${d.duplicate_list.length} of ${d.duplicates} duplicates.`;
+            if (d.duplicate_list_truncated) more.textContent = `Showing the first ${d.duplicate_list.length} of ${d.duplicates} duplicates. The full list is in the CSV report.`;
         } catch (e) { console.error('Failed to load ingestion stats', e); }
         try {
             const r = await api('/api/harvest/runs');

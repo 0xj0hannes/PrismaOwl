@@ -574,3 +574,9 @@ summary .help-btn { margin-left: 6px; }
 .data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .data-table .meta { display: block; }
 .ingest-file-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border-glass); font-size: 0.88rem; }
+
+/* Collapsible card headers (<details><summary>) */
+.summary-row { cursor: pointer; list-style: none; }
+.summary-row::-webkit-details-marker { display: none; }
+.summary-row h3::before { content: "\25B8"; display: inline-block; margin-right: 8px; color: var(--text-secondary); transition: transform 0.2s ease; }
+details[open] > .summary-row h3::before { transform: rotate(90deg); }

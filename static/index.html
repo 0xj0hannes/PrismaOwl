@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PrismaOwl</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=8">
+    <link rel="stylesheet" href="/static/css/style.css?v=9">
     <script>
         // Apply the saved theme before first paint to avoid a flash of the wrong theme.
         (function () {
@@ -185,15 +185,17 @@
                 </div>
 
                 <div class="card glass wide">
-                    <div class="row-between">
-                        <h3>Duplicate records <span class="tag" id="ingest-dups-tag">0</span></h3>
-                        <span class="info-text">Matched by DOI, or by normalised title + year + first author. Kept for the audit trail; never screened.</span>
-                    </div>
-                    <div class="table-wrap mt-10"><table class="data-table" id="ingest-dups-table">
-                        <thead><tr><th>Duplicate</th><th>Source</th><th>Reason</th><th>Kept record</th></tr></thead>
-                        <tbody></tbody>
-                    </table></div>
-                    <p class="info-text mt-10 hidden" id="ingest-dups-more"></p>
+                    <details id="ingest-dups-details">
+                        <summary class="row-between summary-row">
+                            <h3>Duplicate records <span class="tag" id="ingest-dups-tag">0</span></h3>
+                            <span class="info-text">Matched by DOI, or by normalised title + year + first author. Kept for the audit trail; never screened. Click to show.</span>
+                        </summary>
+                        <div class="table-wrap mt-10"><table class="data-table" id="ingest-dups-table">
+                            <thead><tr><th>Duplicate</th><th>Source</th><th>Reason</th><th>Kept record</th></tr></thead>
+                            <tbody></tbody>
+                        </table></div>
+                        <p class="info-text mt-10 hidden" id="ingest-dups-more"></p>
+                    </details>
                 </div>
                 <div class="tab-next">
                     <button class="btn-primary" data-goto="criteria">Next: Criteria →</button>
@@ -597,7 +599,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=14"></script>
+    <script src="/static/js/app.js?v=15"></script>
 </body>
 
 </html>

@@ -413,7 +413,7 @@ def _ingest_records(new_records: List[Record]) -> Dict[str, Any]:
 
 
 @app.get("/api/ingest/stats")
-async def ingest_stats(limit: int = 500):
+async def ingest_stats(limit: int = 100):
     """Corpus dashboard: identified / unique / duplicate counts, per-source
     breakdown and the list of duplicate records with what they duplicate."""
     records = get_all_records()
@@ -427,7 +427,7 @@ async def ingest_stats(limit: int = 500):
         if r.get("is_duplicate"):
             row["duplicates"] += 1
     dup_rows = []
-    for r in dups[:limit]:
+    for r in dups[:max(1, min(int(limit), 1000))]:
         canon = by_id.get(r.get("duplicate_of") or "", {})
         dup_rows.append({
             "id": r["id"], "title": r.get("title", ""), "year": r.get("year"), "doi": r.get("doi"),
