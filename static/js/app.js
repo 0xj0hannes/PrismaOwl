@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tabId === 'ingest') loadIngestStats();
         if (tabId === 'review') loadReviews();
         if (tabId === 'strategy') { loadHarvestSources().then(() => { loadHarvestRuns(); pollHarvestJobs(); }); }
-        if (tabId === 'criteria') { if (!criteriaPending) loadCriteriaEditor(); }
+        if (tabId === 'criteria') { if (!criteriaPending) loadCriteriaEditor(); refreshCriteriaResetBox(); setStatus($('reset-status'), ''); }
         if (tabId === 'chat') loadChatScopes();
     }
     navLinks.forEach(link => link.addEventListener('click', () => showTab(link.getAttribute('data-tab'))));
@@ -591,13 +591,29 @@ document.addEventListener('DOMContentLoaded', () => {
     $('btn-criteria-refine').addEventListener('click', () => runCriteriaAI(true));
 
 
+    // The "changing criteria after screening?" box only makes sense while
+    // screening results exist; it disappears once they are reset.
+    async function refreshCriteriaResetBox() {
+        try {
+            const st = await api('/api/screen/status');
+            const n = st.screened || 0;
+            $('criteria-reset-box').classList.toggle('hidden', n === 0);
+            $('criteria-reset-count').textContent = n === 1 ? '1 screening result' : `${n} screening results`;
+        } catch (_) { /* ignore */ }
+    }
+
     $('btn-reset-results').addEventListener('click', async () => {
         if (!confirm('Delete ALL screening results (including human review decisions)? Records are kept.')) return;
         const st = $('reset-status');
+        const btn = $('btn-reset-results');
+        btn.disabled = true;
         try {
             const r = await api('/api/screen/results', { method: 'DELETE' });
-            setStatus(st, `Deleted ${r.deleted} results.`, 'success');
+            $('criteria-reset-box').classList.add('hidden');
+            setStatus(st, `Deleted ${r.deleted} screening results. The corpus will be re-screened on the next run.`, 'success');
+            updateScreenStats();
         } catch (e) { setStatus(st, 'Error: ' + e.message, 'error'); }
+        finally { btn.disabled = false; }
     });
 
     // ------------------------------------------------------------------

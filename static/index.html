@@ -248,12 +248,13 @@
                     </div>
                     <div id="criteria-editor" class="mt-10"></div>
                     <p class="status-inline mt-20" id="criteria-save-status" title="Every change is saved automatically to criteria.json, which the CLI reads too. Saving waits while a screening batch is running."></p>
-                    <div class="warn-box mt-20">
-                        <p><strong>Changing criteria after screening?</strong> Existing results were judged against the
-                            old criteria. Reset them so the corpus is re-screened on the next run.</p>
+                    <div class="warn-box mt-20 hidden" id="criteria-reset-box">
+                        <p><strong>Changing criteria after screening?</strong> <span id="criteria-reset-count"></span>
+                            were judged against the criteria in force at the time. Reset them so the corpus is re-screened
+                            on the next run.</p>
                         <button class="btn-danger btn-sm mt-10" id="btn-reset-results">Reset all screening results</button>
-                        <span class="status-inline" id="reset-status"></span>
                     </div>
+                    <p class="status-inline mt-10" id="reset-status"></p>
                 </div>
                 <div class="tab-next">
                     <button class="btn-primary" data-goto="screen">Next: Screening →</button>
@@ -605,7 +606,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=19"></script>
+    <script src="/static/js/app.js?v=20"></script>
 </body>
 
 </html>
