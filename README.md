@@ -21,6 +21,7 @@ This tool takes a complementary, zero-shot approach: it sends each record to an 
 - 📋 **LLM Criteria Assistant + Editor**: Draft or refine inclusion criteria from the research question, edit every field in the browser, and save straight to `criteria.json`.
 - 💬 **Ask-the-corpus Chatbot**: Chat with an LLM that has read every included record; answers cite record IDs.
 - 🔀 **Model Routing via OrcaRouter, or Gemini directly**: One OrcaRouter key gives you any model (`orcarouter/auto` for adaptive routing, or pin a different model per task: screening, query building, criteria, chat). Prefer Google's free tier? Set `GEMINI_API_KEY` and the same code talks to the Gemini API instead.
+- 🆓 **Runs for free**: OrcaRouter has a **Free** routing mode (`orcarouter/free` plus free `-free` models such as `deepseek/deepseek-v4-flash-free` for screening) that needs no credits, and Gemini's free tier needs no credit card. A one-click *Auto / Free* toggle in Settings switches OrcaRouter between the two.
 - 🖥 **Premium Web Dashboard**: A sleek, dark-mode GUI natively powered by FastAPI for seamless visual ingestion, screening, and human-in-the-loop review.
 - 🔬 **High-Precision AI Screening**: Engineered to favour precision over recall—every criterion needs explicit, quoted evidence from the title or abstract before a record is included.
 - 🧭 **Any discipline**: Nothing about a research field is hard-coded. Criteria, search concepts and the chat all derive from your own research question.
@@ -37,7 +38,9 @@ This tool takes a complementary, zero-shot approach: it sends each record to an 
 - Python 3.9+
 - An API key for **one** of the two supported LLM providers:
 
-**Option A — OrcaRouter (default):** an [OrcaRouter](https://www.orcarouter.ai) API key (`sk-orca-…`) with some credit on the account. OrcaRouter is an OpenAI-compatible gateway that routes each request to one of 100+ upstream models (Anthropic, OpenAI, Google, DeepSeek, Qwen, …), so you never have to manage per-vendor keys or chase deprecated model names. Sign in to the [OrcaRouter console](https://www.orcarouter.ai/console), create an API key and add credits. The `orcarouter/free` meta-model routes to free upstream models and works without credits — handy for trying the tool out, but slow.
+**Option A — OrcaRouter (default):** an [OrcaRouter](https://www.orcarouter.ai) API key (`sk-orca-…`) with some credit on the account. OrcaRouter is an OpenAI-compatible gateway that routes each request to one of 100+ upstream models (Anthropic, OpenAI, Google, DeepSeek, Qwen, …), so you never have to manage per-vendor keys or chase deprecated model names. Sign in to the [OrcaRouter console](https://www.orcarouter.ai/console) and create an API key.
+
+> **Free mode (no credits needed).** You do not have to add credits. OrcaRouter offers free upstream models: the `orcarouter/free` meta-model routes to whichever free model is available, and concrete free models are listed with a `-free` suffix (for example `deepseek/deepseek-v4-flash-free`, `qwen/qwen3.8-27b-free`, `tencent/hy3-free`; run `python3 test_llm.py --models` to see the current list). Choose **Free** in the *Auto / Free* routing toggle of the ⚙️ Settings dialog, or set `MODEL_NAME=orcarouter/free` and `MODEL_SCREENING=<a -free model>` in `.env`. Free models are slower and rate-limited; **Auto** (`orcarouter/auto`, best model per request) needs credits. If you see `HTTP 402 insufficient_user_quota`, the account has no credits and you are still on *Auto*.
 
 **Option B — Google Gemini (free tier, no credit card):** a [Google AI Studio](https://aistudio.google.com/) API key. Sign in with a Google account and click **Get API key** → **Create API key**. As a new user, AI Studio automatically provisions a default Google Cloud project for you, and the key gets free-tier access immediately — no billing account needed. If you already manage a GCP project you can instead enable the **Generative Language API** in [Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials) and create the key there (this is still the free Gemini Developer API, not the billed Vertex AI). PrismaOwl talks to Gemini through its OpenAI-compatible endpoint, so no Google SDK is installed.
 
@@ -63,10 +66,19 @@ pip install -r requirements.txt
 Activate the environment in every new terminal before running the commands below (use the `activate.fish` script if your shell is fish; the plain `activate` script is bash/zsh syntax and fails there). If you prefer not to activate it, prefix commands with `.venv/bin/python` instead of `python3`.
 
 ### 3. Environment Setup
-Create a `.env` file in the root directory. With OrcaRouter:
+Create a `.env` file in the root directory (or enter everything in the ⚙️ Settings dialog of the web UI, which writes the same file). With OrcaRouter and credits on the account:
 ```env
 ORCA_API_KEY=sk-orca-your_key_here
 MODEL_NAME=orcarouter/auto      # or any id from `python3 test_llm.py`, e.g. anthropic/claude-sonnet-5
+MODEL_SCREENING=anthropic/claude-sonnet-5   # screening needs one concrete model
+MAX_RETRIES=3
+```
+
+With OrcaRouter and **no credits** (free mode):
+```env
+ORCA_API_KEY=sk-orca-your_key_here
+MODEL_NAME=orcarouter/free
+MODEL_SCREENING=deepseek/deepseek-v4-flash-free
 MAX_RETRIES=3
 ```
 
@@ -92,12 +104,7 @@ MODEL_CHAT=google/gemini-3.5-flash
 
 Run `python3 test_llm.py` to list every model id your key can use and to check that each configured task model answers (add `--provider gemini` or `--provider orcarouter` to test the other provider). A `402` error from OrcaRouter means the account has no credits.
 
-**Using OrcaRouter without credits.** Set `MODEL_NAME=orcarouter/free` so query building, criteria drafting and chat use free upstream models. Screening still has to be pinned to one concrete model, so pick one of the free ids from `python3 test_llm.py --models` (they end in `-free`), for example:
-
-```env
-MODEL_NAME=orcarouter/free
-MODEL_SCREENING=deepseek/deepseek-v4-flash-free
-``` See `.env.example` for the optional harvester keys (`OPENALEX_EMAIL`, `SEMANTIC_SCHOLAR_API_KEY`, `SCOPUS_API_KEY`, `IEEE_API_KEY`).
+**Using OrcaRouter without credits.** Set `MODEL_NAME=orcarouter/free` so query building, criteria drafting and chat use free upstream models. Screening still has to be pinned to one concrete model, so pick one of the free ids from `python3 test_llm.py --models` (they end in `-free`). The *Auto / Free* toggle in ⚙️ Settings does both in one click: it sets the default model to `orcarouter/free` and fills the screening model with a free id from your live model list. See `.env.example` for the optional harvester keys (`OPENALEX_EMAIL`, `SEMANTIC_SCHOLAR_API_KEY`, `SCOPUS_API_KEY`, `IEEE_API_KEY`).
 
 ---
 
