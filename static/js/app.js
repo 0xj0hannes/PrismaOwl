@@ -668,6 +668,173 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ------------------------------------------------------------------
+    // Settings dialog (LLM provider, models, theme) -> PUT /api/settings
+    // ------------------------------------------------------------------
+    const settingsModal = $('settings-modal');
+    const THEME_KEY = 'prismaowl-theme';
+    const SETTING_FIELDS = ['LLM_PROVIDER', 'ORCA_BASE_URL', 'GEMINI_BASE_URL', 'MODEL_NAME', 'MODEL_SCREENING',
+        'MODEL_QUERY', 'MODEL_CRITERIA', 'MODEL_CHAT', 'MAX_RETRIES', 'LLM_TIMEOUT', 'OPENALEX_EMAIL'];
+    const SECRET_FIELDS = ['ORCA_API_KEY', 'GEMINI_API_KEY', 'SEMANTIC_SCHOLAR_API_KEY',
+        'SCOPUS_API_KEY', 'SCOPUS_INST_TOKEN', 'IEEE_API_KEY'];
+    const settingInput = (key) => $(`setting-${key}`);
+    let settingsSnapshot = null;
+
+    function applyTheme(choice) {
+        let t = choice || 'dark';
+        if (t === 'system') t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+    }
+    function savedTheme() {
+        try { return localStorage.getItem(THEME_KEY) || 'dark'; } catch (_) { return 'dark'; }
+    }
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+        if (savedTheme() === 'system') applyTheme('system');
+    });
+    $('setting-theme').addEventListener('change', (e) => {
+        try { localStorage.setItem(THEME_KEY, e.target.value); } catch (_) { /* private mode */ }
+        applyTheme(e.target.value);
+    });
+
+    function updateProviderBlocks() {
+        const chosen = settingInput('LLM_PROVIDER').value;
+        const snap = settingsSnapshot || { secrets: {}, providers: {} };
+        const orcaSet = !!(snap.secrets.ORCA_API_KEY || {}).set;
+        const gemSet = !!(snap.secrets.GEMINI_API_KEY || {}).set;
+        // Mirror the server's auto-detect rule so the highlight matches what will run.
+        const active = chosen || (orcaSet ? 'orcarouter' : (gemSet ? 'gemini' : 'orcarouter'));
+        ['orcarouter', 'gemini'].forEach(pv => {
+            $(`provider-block-${pv}`).classList.toggle('active', pv === active);
+            const tag = $(`tag-${pv}`);
+            const set = pv === 'orcarouter' ? orcaSet : gemSet;
+            tag.textContent = pv === active ? 'active' : (set ? 'key saved' : 'no key');
+            tag.className = 'tag ' + (pv === active ? 'ok' : (set ? '' : 'muted'));
+        });
+        $('setting-provider-help').textContent = chosen
+            ? `Screening, query building, criteria and chat will all use ${snap.providers[chosen]?.label || chosen}.`
+            : `Auto-detect picks OrcaRouter when its key is saved, otherwise Gemini. Currently: ${snap.providers[active]?.label || active}.`;
+    }
+    settingInput('LLM_PROVIDER').addEventListener('change', updateProviderBlocks);
+
+    function renderSecret(key, state) {
+        const input = settingInput(key);
+        input.value = '';
+        input.dataset.clear = '';
+        input.classList.remove('cleared');
+        input.placeholder = state && state.set
+            ? `saved${state.hint ? ' (' + state.hint + ')' : ''} - leave blank to keep`
+            : 'not set';
+        const btn = document.querySelector(`[data-clear="${key}"]`);
+        if (btn) btn.hidden = !(state && state.set);
+    }
+    document.querySelectorAll('[data-clear]').forEach(btn => btn.addEventListener('click', () => {
+        const input = settingInput(btn.dataset.clear);
+        const clearing = input.dataset.clear !== '1';
+        input.dataset.clear = clearing ? '1' : '';
+        input.value = '';
+        input.classList.toggle('cleared', clearing);
+        input.placeholder = clearing ? 'will be removed on save' : 'saved - leave blank to keep';
+        btn.textContent = clearing ? 'Keep' : 'Remove';
+        if (btn.dataset.clear === 'ORCA_API_KEY' || btn.dataset.clear === 'GEMINI_API_KEY') updateProviderBlocks();
+    }));
+
+    async function loadSettings() {
+        setStatus($('settings-status'), 'Loading…');
+        const data = await api('/api/settings');
+        settingsSnapshot = data;
+        SETTING_FIELDS.forEach(k => { settingInput(k).value = data.values[k] ?? ''; });
+        SECRET_FIELDS.forEach(k => renderSecret(k, data.secrets[k]));
+        document.querySelectorAll('[data-clear]').forEach(b => { b.textContent = 'Remove'; });
+        $('setting-theme').value = savedTheme();
+        updateProviderBlocks();
+        setStatus($('settings-status'), '');
+        refreshPinWarning();
+    }
+
+    async function refreshPinWarning() {
+        try {
+            const st = await api('/api/screen/status');
+            const warn = $('settings-pin-warning');
+            warn.textContent = st.model_ok ? '' : st.model_error;
+            warn.classList.toggle('hidden', !!st.model_ok);
+        } catch (_) { /* ignore */ }
+    }
+
+    function collectSettings() {
+        const body = {};
+        SETTING_FIELDS.forEach(k => { body[k] = settingInput(k).value.trim(); });
+        SECRET_FIELDS.forEach(k => {
+            const input = settingInput(k);
+            if (input.dataset.clear === '1') body[k] = '';
+            else if (input.value.trim()) body[k] = input.value.trim();
+            else body[k] = null;                      // keep the saved value
+        });
+        return body;
+    }
+
+    function openSettings() {
+        settingsModal.classList.remove('hidden');
+        $('setting-theme').value = savedTheme();
+        setStatus($('settings-test-status'), '');
+        setStatus($('settings-models-status'), '');
+        loadSettings().catch(e => setStatus($('settings-status'), `Could not load settings: ${e.message}`, 'error'));
+    }
+    function closeSettings() { settingsModal.classList.add('hidden'); }
+
+    $('btn-settings').addEventListener('click', openSettings);
+    $('btn-settings-close').addEventListener('click', closeSettings);
+    $('btn-settings-cancel').addEventListener('click', closeSettings);
+    settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) closeSettings(); });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !settingsModal.classList.contains('hidden')) closeSettings();
+    });
+
+    $('btn-settings-save').addEventListener('click', async () => {
+        const btn = $('btn-settings-save');
+        btn.disabled = true;
+        setStatus($('settings-status'), 'Saving…');
+        try {
+            const res = await postJSON('/api/settings', collectSettings(), 'PUT');
+            setStatus($('settings-status'), `Saved ${res.written.length} setting(s) to .env.`, 'success');
+            await loadSettings();
+            loadLLMInfo();
+            updateScreenStats();
+        } catch (e) {
+            setStatus($('settings-status'), e.message, 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    $('btn-settings-test').addEventListener('click', async () => {
+        const st = $('settings-test-status');
+        setStatus(st, 'Testing saved key…');
+        try {
+            const res = await postJSON('/api/settings/test', { provider: settingInput('LLM_PROVIDER').value });
+            setStatus(st, `${res.label} OK: ${res.model_count} models available.`, 'success');
+        } catch (e) {
+            setStatus(st, e.message, 'error');
+        }
+    });
+
+    $('btn-settings-models').addEventListener('click', async () => {
+        const st = $('settings-models-status');
+        setStatus(st, 'Loading…');
+        try {
+            const pv = settingInput('LLM_PROVIDER').value;
+            const res = await api('/api/settings/models' + (pv ? `?provider=${encodeURIComponent(pv)}` : ''));
+            const dl = $('model-ids');
+            dl.innerHTML = '';
+            res.models.forEach(id => { const o = document.createElement('option'); o.value = id; dl.appendChild(o); });
+            setStatus(st, `${res.models.length} models from ${res.label}; start typing in a field to pick one.`, 'success');
+        } catch (e) {
+            setStatus(st, e.message, 'error');
+        }
+    });
+
+    applyTheme(savedTheme());
+    if (location.hash === '#settings') openSettings();   // deep link, e.g. from the README
+
+    // ------------------------------------------------------------------
     // Initial Load
     // ------------------------------------------------------------------
     async function loadLLMInfo() {

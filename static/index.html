@@ -6,7 +6,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PrismaOwl</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=4">
+    <link rel="stylesheet" href="/static/css/style.css?v=5">
+    <script>
+        // Apply the saved theme before first paint to avoid a flash of the wrong theme.
+        (function () {
+            try {
+                var t = localStorage.getItem('prismaowl-theme') || 'dark';
+                if (t === 'system') t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', t);
+            } catch (e) { /* ignore */ }
+        })();
+    </script>
     <meta name="description" content="PrismaOwl: AI-assisted PRISMA / SoK literature screening tool.">
 </head>
 
@@ -43,6 +53,9 @@
             </ul>
             <div class="sidebar-footer">
                 <span id="llm-model-label" title="Configured in .env (MODEL_NAME)">LLM: …</span>
+                <button class="btn-settings" id="btn-settings" title="LLM providers, models, theme">
+                    <span class="icon">⚙️</span> Settings
+                </button>
             </div>
         </nav>
 
@@ -342,7 +355,157 @@
         </div>
     </template>
 
-    <script src="/static/js/app.js?v=5"></script>
+
+    <!-- Settings dialog -->
+    <div class="modal-overlay hidden" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="modal glass">
+            <div class="modal-header">
+                <h2 id="settings-title">⚙️ Settings</h2>
+                <button class="modal-close" id="btn-settings-close" aria-label="Close">×</button>
+            </div>
+            <div class="modal-body">
+
+                <section class="settings-section">
+                    <h3>Appearance</h3>
+                    <div class="settings-grid">
+                        <label class="field-label" for="setting-theme">Theme</label>
+                        <select id="setting-theme" class="input-md">
+                            <option value="dark">Dark</option>
+                            <option value="light">Light</option>
+                            <option value="system">Follow system</option>
+                        </select>
+                    </div>
+                    <p class="settings-help">Stored in this browser only.</p>
+                </section>
+
+                <section class="settings-section">
+                    <h3>LLM provider</h3>
+                    <div class="settings-grid">
+                        <label class="field-label" for="setting-LLM_PROVIDER">Provider</label>
+                        <select id="setting-LLM_PROVIDER" class="input-md">
+                            <option value="">Auto-detect from the keys below</option>
+                            <option value="orcarouter">OrcaRouter</option>
+                            <option value="gemini">Google Gemini</option>
+                        </select>
+                    </div>
+                    <p class="settings-help" id="setting-provider-help"></p>
+
+                    <div class="provider-block" id="provider-block-orcarouter">
+                        <div class="row-between">
+                            <strong>OrcaRouter</strong>
+                            <span class="tag" id="tag-orcarouter"></span>
+                        </div>
+                        <div class="settings-grid">
+                            <label class="field-label" for="setting-ORCA_API_KEY">API key</label>
+                            <div class="secret-row">
+                                <input type="password" id="setting-ORCA_API_KEY" data-secret="ORCA_API_KEY"
+                                    autocomplete="off" placeholder="sk-orca-…">
+                                <button class="btn-outline btn-sm" type="button" data-clear="ORCA_API_KEY">Remove</button>
+                            </div>
+                            <label class="field-label" for="setting-ORCA_BASE_URL">Base URL</label>
+                            <input type="text" id="setting-ORCA_BASE_URL" placeholder="https://api.orcarouter.ai/v1">
+                        </div>
+                        <p class="settings-help">Get a key at <a href="https://www.orcarouter.ai/console" target="_blank" rel="noopener">orcarouter.ai/console</a>. Without credits, use <code>orcarouter/free</code> below and a concrete <code>-free</code> model for screening.</p>
+                    </div>
+
+                    <div class="provider-block" id="provider-block-gemini">
+                        <div class="row-between">
+                            <strong>Google Gemini</strong>
+                            <span class="tag" id="tag-gemini"></span>
+                        </div>
+                        <div class="settings-grid">
+                            <label class="field-label" for="setting-GEMINI_API_KEY">API key</label>
+                            <div class="secret-row">
+                                <input type="password" id="setting-GEMINI_API_KEY" data-secret="GEMINI_API_KEY"
+                                    autocomplete="off" placeholder="AIza…">
+                                <button class="btn-outline btn-sm" type="button" data-clear="GEMINI_API_KEY">Remove</button>
+                            </div>
+                            <label class="field-label" for="setting-GEMINI_BASE_URL">Base URL</label>
+                            <input type="text" id="setting-GEMINI_BASE_URL" placeholder="https://generativelanguage.googleapis.com/v1beta/openai">
+                        </div>
+                        <p class="settings-help">Free tier, no credit card: <a href="https://aistudio.google.com/" target="_blank" rel="noopener">Google AI Studio</a> → Get API key.</p>
+                    </div>
+
+                    <div class="btn-row mt-10">
+                        <button class="btn-outline btn-sm" id="btn-settings-test" type="button">Test connection</button>
+                        <span class="status-inline" id="settings-test-status"></span>
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <div class="row-between">
+                        <h3>Models</h3>
+                        <div class="btn-row">
+                            <button class="btn-outline btn-sm" id="btn-settings-models" type="button">Load model list</button>
+                            <span class="status-inline" id="settings-models-status"></span>
+                        </div>
+                    </div>
+                    <datalist id="model-ids"></datalist>
+                    <div class="settings-grid">
+                        <label class="field-label" for="setting-MODEL_NAME">Default (MODEL_NAME)</label>
+                        <input type="text" id="setting-MODEL_NAME" list="model-ids" placeholder="empty = provider default">
+                        <label class="field-label" for="setting-MODEL_SCREENING">Screening</label>
+                        <input type="text" id="setting-MODEL_SCREENING" list="model-ids" placeholder="one concrete model, e.g. anthropic/claude-sonnet-5">
+                        <label class="field-label" for="setting-MODEL_QUERY">Search strategy</label>
+                        <input type="text" id="setting-MODEL_QUERY" list="model-ids" placeholder="empty = default">
+                        <label class="field-label" for="setting-MODEL_CRITERIA">Criteria assistant</label>
+                        <input type="text" id="setting-MODEL_CRITERIA" list="model-ids" placeholder="empty = default">
+                        <label class="field-label" for="setting-MODEL_CHAT">Chat</label>
+                        <input type="text" id="setting-MODEL_CHAT" list="model-ids" placeholder="empty = default">
+                    </div>
+                    <p class="settings-help">Screening is pinned to one concrete model for reproducibility: on OrcaRouter, meta-models such as <code>orcarouter/auto</code> or <code>orcarouter/free</code> are refused for screening (they stay fine for the other tasks).</p>
+                    <p id="settings-pin-warning" class="screen-model-warning hidden"></p>
+                </section>
+
+                <section class="settings-section">
+                    <h3>Advanced</h3>
+                    <div class="settings-grid">
+                        <label class="field-label" for="setting-MAX_RETRIES">Max retries</label>
+                        <input type="number" id="setting-MAX_RETRIES" class="input-sm" min="1" step="1">
+                        <label class="field-label" for="setting-LLM_TIMEOUT">LLM timeout (s)</label>
+                        <input type="number" id="setting-LLM_TIMEOUT" class="input-sm" min="1" step="1">
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h3>Database harvesting credentials <span class="settings-optional">(optional)</span></h3>
+                    <div class="settings-grid">
+                        <label class="field-label" for="setting-OPENALEX_EMAIL">OpenAlex / Crossref e-mail</label>
+                        <input type="text" id="setting-OPENALEX_EMAIL" placeholder="you@example.org (polite pool)">
+                        <label class="field-label" for="setting-SEMANTIC_SCHOLAR_API_KEY">Semantic Scholar key</label>
+                        <div class="secret-row">
+                            <input type="password" id="setting-SEMANTIC_SCHOLAR_API_KEY" data-secret="SEMANTIC_SCHOLAR_API_KEY" autocomplete="off">
+                            <button class="btn-outline btn-sm" type="button" data-clear="SEMANTIC_SCHOLAR_API_KEY">Remove</button>
+                        </div>
+                        <label class="field-label" for="setting-SCOPUS_API_KEY">Scopus key</label>
+                        <div class="secret-row">
+                            <input type="password" id="setting-SCOPUS_API_KEY" data-secret="SCOPUS_API_KEY" autocomplete="off">
+                            <button class="btn-outline btn-sm" type="button" data-clear="SCOPUS_API_KEY">Remove</button>
+                        </div>
+                        <label class="field-label" for="setting-SCOPUS_INST_TOKEN">Scopus inst. token</label>
+                        <div class="secret-row">
+                            <input type="password" id="setting-SCOPUS_INST_TOKEN" data-secret="SCOPUS_INST_TOKEN" autocomplete="off">
+                            <button class="btn-outline btn-sm" type="button" data-clear="SCOPUS_INST_TOKEN">Remove</button>
+                        </div>
+                        <label class="field-label" for="setting-IEEE_API_KEY">IEEE Xplore key</label>
+                        <div class="secret-row">
+                            <input type="password" id="setting-IEEE_API_KEY" data-secret="IEEE_API_KEY" autocomplete="off">
+                            <button class="btn-outline btn-sm" type="button" data-clear="IEEE_API_KEY">Remove</button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            <div class="modal-footer">
+                <span class="status-inline" id="settings-status">Saved to <code>.env</code> in the project root.</span>
+                <div class="btn-row">
+                    <button class="btn-outline" id="btn-settings-cancel" type="button">Cancel</button>
+                    <button class="btn-primary" id="btn-settings-save" type="button">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js?v=6"></script>
 </body>
 
 </html>

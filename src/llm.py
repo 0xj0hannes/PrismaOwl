@@ -214,12 +214,15 @@ def provider_settings(cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     cfg = cfg if cfg is not None else load_config()
     name = provider_for(cfg)
     spec = PROVIDERS[name]
-    api_key = cfg.get("LLM_API_KEY") if cfg.get("LLM_PROVIDER") else None
-    if api_key is None:
-        api_key = cfg.get(spec["key_env"])
-    base_url = cfg.get("LLM_BASE_URL") if cfg.get("LLM_PROVIDER") else None
-    if not base_url:
-        base_url = cfg.get(spec["base_url_env"]) or spec["base_url"]
+    # Prefer the provider-specific variables; the pre-resolved LLM_API_KEY /
+    # LLM_BASE_URL only apply when they were computed for this same provider.
+    api_key = cfg.get(spec["key_env"]) or ""
+    if not api_key and cfg.get("LLM_PROVIDER") == name:
+        api_key = cfg.get("LLM_API_KEY") or ""
+    base_url = cfg.get(spec["base_url_env"]) or ""
+    if not base_url and cfg.get("LLM_PROVIDER") == name:
+        base_url = cfg.get("LLM_BASE_URL") or ""
+    base_url = base_url or spec["base_url"]
     return {"provider": name, "label": spec["label"], "key_env": spec["key_env"],
             "api_key": api_key or "", "base_url": base_url,
             "default_model": spec["default_model"], "console": spec["console"]}
