@@ -152,13 +152,20 @@
                         <div class="stat-box"><h3 id="ingest-stat-dups">0</h3><span>Duplicates removed</span></div>
                         <div class="stat-box"><h3 id="ingest-stat-sources">0</h3><span>Source files</span></div>
                     </div>
-                    <details class="mt-20" id="ingest-sources-details">
-                        <summary class="info-text">Per source file</summary>
+                    <div class="row-between mt-20">
+                        <details id="ingest-sources-details">
+                            <summary class="info-text">Per source file</summary>
                         <div class="table-wrap mt-10"><table class="data-table" id="ingest-sources-table">
                             <thead><tr><th>Source file</th><th>Records</th><th>Duplicates</th><th>Unique</th></tr></thead>
                             <tbody></tbody>
                         </table></div>
-                    </details>
+                        </details>
+                        <div class="btn-row">
+                            <button class="btn-danger btn-sm" id="btn-flush-corpus"
+                                title="Delete every ingested record, harvest run and screening result">🗑 Flush all ingested data</button>
+                            <span class="status-inline" id="flush-status"></span>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="card glass wide mb-20">
@@ -598,7 +605,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=18"></script>
+    <script src="/static/js/app.js?v=19"></script>
 </body>
 
 </html>

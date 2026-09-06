@@ -157,6 +157,21 @@ def delete_harvest(run_id: str) -> dict:
     return {"deleted_run": bool(deleted_run), "records_removed": removed, "records_kept": kept}
 
 
+def clear_corpus() -> dict:
+    """Delete every ingested record (canonical and duplicate), every harvest
+    run and every screening result. Returns the counts removed."""
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute('DELETE FROM screening_results')
+        results = cur.rowcount
+        cur.execute('DELETE FROM records')
+        records = cur.rowcount
+        cur.execute('DELETE FROM harvests')
+        harvests = cur.rowcount
+        conn.commit()
+    return {"records": records, "harvests": harvests, "screening_results": results}
+
+
 def clear_screening_results() -> int:
     """Delete all screening results. Returns the number of rows removed."""
     with get_db() as conn:

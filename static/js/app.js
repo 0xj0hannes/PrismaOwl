@@ -111,6 +111,25 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (_) { /* ignore */ }
     }
 
+    // Flush: start over with an empty corpus (records, harvest runs, screening results).
+    $('btn-flush-corpus').addEventListener('click', async () => {
+        const st = $('flush-status');
+        const total = $('ingest-stat-total').textContent;
+        if (!confirm(`Delete ALL ingested data?\n\nThis removes ${total} records (including duplicates), every harvest run and every screening result, including human review decisions.\n\nYour criteria and search strategy are kept. This cannot be undone.`)) return;
+        const btn = $('btn-flush-corpus');
+        btn.disabled = true;
+        setStatus(st, 'Deleting…');
+        try {
+            const r = await api('/api/ingest/all', { method: 'DELETE' });
+            setStatus(st, `Removed ${r.records} records, ${r.harvests} harvest runs and ${r.screening_results} screening results.`, 'success');
+            loadIngestStats();
+            updateScreenStats();
+            loadHarvestRuns();
+        } catch (e) {
+            setStatus(st, 'Error: ' + e.message, 'error');
+        } finally { btn.disabled = false; }
+    });
+
     // Duplicates table: 30 rows per page with numbered pages (search-engine
     // style: Prev, a window of up to 10 page numbers around the current one, Next).
     const DUP_PAGE = 30;

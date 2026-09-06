@@ -186,3 +186,16 @@ def test_duplicates_endpoint_pages(web):
     # The stats endpoint carries the first page and the has-more flag.
     st = asyncio.run(web.ingest_stats(limit=5))
     assert len(st["duplicate_list"]) == 5 and st["duplicate_list_truncated"] is True
+
+
+def test_flush_removes_records_runs_and_results(web, monkeypatch):
+    _ingest(web, [make_record(id="a", doi="10.1/a"), make_record(id="a2", doi="10.1/a", source_file="x")])
+    db.save_harvest({"id": "h1", "source": "openalex", "status": "done", "started": "2026-09-06T10:00:00"})
+    db.save_screening_result({"record_id": "a", "decision": "Include"})
+    monkeypatch.setattr(web, "is_screening_running", True)
+    assert asyncio.run(web.delete_all_ingested()).status_code == 409
+    monkeypatch.setattr(web, "is_screening_running", False)
+    res = asyncio.run(web.delete_all_ingested())
+    assert (res["records"], res["harvests"], res["screening_results"]) == (2, 1, 1)
+    assert db.get_all_records() == [] and db.get_harvests() == [] and db.get_all_screening_results() == {}
+    assert asyncio.run(web.ingest_stats())["total_records"] == 0

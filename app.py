@@ -14,7 +14,7 @@ from src.screening import screen_record, is_fatal_error, fatal_error_hint, check
 from src.reporting import generate_report
 from src.db import (init_db, save_record, save_screening_result, get_all_records, get_all_screening_results,
                     get_unique_records, clear_screening_results, save_harvest, get_harvests, get_harvest,
-                    get_records_for_harvest, delete_harvest)
+                    get_records_for_harvest, delete_harvest, clear_corpus)
 from src.config import (load_config, save_criteria, load_search_strategy, save_search_strategy,
                         update_env, PROVIDERS, EDITABLE_SETTINGS, SECRET_SETTINGS)
 from src import screening as screening_module
@@ -430,6 +430,15 @@ def _duplicate_rows(records: List[Dict[str, Any]], offset: int, limit: int) -> D
         })
     return {"total": len(dups), "offset": offset, "limit": limit, "items": rows,
             "has_more": offset + len(rows) < len(dups)}
+
+
+@app.delete("/api/ingest/all")
+async def delete_all_ingested():
+    """Flush the corpus: all records, harvest runs and screening results.
+    criteria.json and search_strategy.json are untouched."""
+    if is_screening_running:
+        return JSONResponse({"error": "Stop screening first."}, status_code=409)
+    return {"status": "success", **clear_corpus()}
 
 
 @app.get("/api/ingest/duplicates")
