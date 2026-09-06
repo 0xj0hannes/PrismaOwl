@@ -42,3 +42,19 @@ def test_adding_a_criterion_changes_the_prompt(sample_criteria):
     assert "New criterion" not in base
     assert "New criterion" in new
     assert "**IC3: New criterion**" in new
+
+
+def test_prompt_strictness_levels(sample_criteria):
+    from src.prompts import generate_prompt, STRICTNESS_LEVELS
+    strict = generate_prompt("t", "a", sample_criteria)
+    balanced = generate_prompt("t", "a", sample_criteria, strictness="balanced")
+    lenient = generate_prompt("t", "a", sample_criteria, strictness="lenient")
+    assert strict == generate_prompt("t", "a", sample_criteria, strictness="strict")
+    assert "Favor precision over sensitivity" in strict
+    assert "uncertainty means \"Maybe\"" in balanced
+    assert "Favor sensitivity over precision" in lenient
+    # rules 1 and 5 are common to every level; rules 2-4 differ
+    for p in (strict, balanced, lenient):
+        assert "1. Evaluate the inclusion criteria strictly and separately." in p
+        assert '5. If the decision is "Exclude" or "Maybe"' in p
+    assert set(STRICTNESS_LEVELS) == {"strict", "balanced", "lenient"}

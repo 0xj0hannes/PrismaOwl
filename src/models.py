@@ -31,6 +31,7 @@ class ScreeningResult(BaseModel):
     notes: str = ""
     timestamp: str = ""
     model_version: str = ""
+    strictness: str = ""   # decision strictness level the prompt used (strict | balanced | lenient)
 
 class Dataset(BaseModel):
     records: List[Record] = Field(default_factory=list)

@@ -112,6 +112,7 @@ def test_put_settings_writes_fields_and_secret_semantics(web):
     ({"LLM_TIMEOUT": "-5"}, "LLM_TIMEOUT"),
     ({"ORCA_BASE_URL": "api.orcarouter.ai/v1"}, "http"),
     ({"MODEL_NAME": "a\nb"}, "single line"),
+    ({"SCREENING_STRICTNESS": "brutal"}, "SCREENING_STRICTNESS"),
     ({}, "Nothing"),
 ])
 def test_put_settings_validation(web, payload, fragment):

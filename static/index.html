@@ -297,6 +297,12 @@
                         <code id="screen-model">…</code>
                     </p>
                     <p id="screen-model-warning" class="screen-model-warning hidden"></p>
+                    <div class="mt-20">
+                        <span class="field-label">Decision strictness (how readily a paper becomes <em>Maybe</em>)</span>
+                        <div class="segmented" id="screen-strictness" role="radiogroup" aria-label="Screening strictness"></div>
+                        <p class="settings-help" id="screen-strictness-help"></p>
+                        <span class="status-inline" id="screen-strictness-status"></span>
+                    </div>
                     <button class="btn-primary mt-20" id="btn-start-screen">Start Screening</button>
                     <div class="progress-container mt-20 hidden" id="screen-progress">
                         <div style="display: flex; gap: 12px; margin-bottom: 8px; align-items: center;">
@@ -608,7 +614,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=22"></script>
+    <script src="/static/js/app.js?v=23"></script>
 </body>
 
 </html>

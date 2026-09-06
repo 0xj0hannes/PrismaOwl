@@ -11,6 +11,7 @@ from src.ingestion import load_bibtex
 from src.deduplication import deduplicate_records, split_duplicates
 from src.models import Record, ScreeningResult, Dataset
 from src.screening import screen_record, is_fatal_error, fatal_error_hint, check_screening_setup
+from src.prompts import STRICTNESS_LEVELS, normalize_strictness
 from src.reporting import generate_report
 from src.db import (init_db, save_record, save_screening_result, get_all_records, get_all_screening_results,
                     get_unique_records, clear_screening_results, save_harvest, get_harvests, get_harvest,
@@ -128,6 +129,7 @@ async def get_settings():
             **{f"MODEL_{t.upper()}": cfg.get(f"MODEL_{t.upper()}") or "" for t in TASKS},
             "MAX_RETRIES": cfg.get("MAX_RETRIES"),
             "LLM_TIMEOUT": cfg.get("LLM_TIMEOUT"),
+            "SCREENING_STRICTNESS": normalize_strictness(cfg.get("SCREENING_STRICTNESS", "")),
             "OPENALEX_EMAIL": cfg.get("OPENALEX_EMAIL") or "",
         },
         "secrets": {k: _secret_state(os.getenv(k)) for k in SECRET_SETTINGS},
@@ -155,6 +157,8 @@ async def put_settings(request: Request):
         val = str(raw).strip() if not isinstance(raw, str) else raw.strip()
         if key == "LLM_PROVIDER" and val and val not in PROVIDERS:
             errors.append(f"LLM_PROVIDER must be one of: {', '.join(PROVIDERS)} (or empty for auto-detect).")
+        elif key == "SCREENING_STRICTNESS" and val and val.lower() not in STRICTNESS_LEVELS:
+            errors.append(f"SCREENING_STRICTNESS must be one of: {', '.join(STRICTNESS_LEVELS)}.")
         elif key == "MAX_RETRIES" and val:
             if not val.isdigit() or int(val) < 1:
                 errors.append("MAX_RETRIES must be a whole number of at least 1.")
@@ -506,7 +510,11 @@ async def screen_status():
     total = len(get_unique_records())
     # Pinned screening model + whether a batch may start with it (see
     # check_screening_setup); the UI shows the model and the reason if not.
-    model_info = {"model": "", "model_ok": True, "model_error": ""}
+    cfg_now = screening_module.config
+    model_info = {"model": "", "model_ok": True, "model_error": "",
+                  "strictness": normalize_strictness(cfg_now.get("SCREENING_STRICTNESS", "")),
+                  "strictness_levels": {k: {"label": v["label"], "summary": v["summary"]}
+                                        for k, v in STRICTNESS_LEVELS.items()}}
     try:
         model_info["model"] = check_screening_setup(all_res)
     except ScreeningModelError as e:

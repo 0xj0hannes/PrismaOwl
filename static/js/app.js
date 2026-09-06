@@ -663,6 +663,7 @@ document.addEventListener('DOMContentLoaded', () => {
         statTotal.textContent = data.total;
         statScreened.textContent = data.screened;
 
+        renderStrictness(data);
         const modelEl = $('screen-model');
         const modelWarn = $('screen-model-warning');
         if (modelEl) modelEl.textContent = data.model || '(not configured)';
@@ -683,6 +684,36 @@ document.addEventListener('DOMContentLoaded', () => {
             screenProgress.classList.add('hidden');
             if (screenInterval) { clearInterval(screenInterval); screenInterval = null; }
             if (criteriaPending && !criteriaSaving && !criteriaSaveTimer) saveCriteriaNow();
+        }
+    }
+
+    // Decision strictness: three prompt rule sets, saved to .env as
+    // SCREENING_STRICTNESS through the settings endpoint; recorded on every
+    // result and guarded like the model pin (no mixing within one review).
+    let strictnessRendered = false;
+    function renderStrictness(status) {
+        const box = $('screen-strictness');
+        const levels = status.strictness_levels || {};
+        if (!strictnessRendered) {
+            box.innerHTML = Object.entries(levels).map(([key, lv]) => `
+                <label class="segment"><input type="radio" name="screen-strictness" value="${key}">
+                    <span><strong>${esc(lv.label)}</strong></span></label>`).join('');
+            box.querySelectorAll('input').forEach(r => r.addEventListener('change', () => setStrictness(r.value)));
+            strictnessRendered = true;
+        }
+        box.querySelectorAll('input').forEach(r => { r.checked = r.value === status.strictness; r.disabled = !!status.is_running; });
+        $('screen-strictness-help').textContent = (levels[status.strictness] || {}).summary || '';
+    }
+    async function setStrictness(level) {
+        const st = $('screen-strictness-status');
+        setStatus(st, 'Saving…');
+        try {
+            await postJSON('/api/settings', { SCREENING_STRICTNESS: level }, 'PUT');
+            setStatus(st, 'Saved. Applies to every record screened from now on.', 'success');
+            updateScreenStats();
+        } catch (e) {
+            setStatus(st, 'Not saved: ' + e.message, 'error');
+            updateScreenStats();
         }
     }
 
@@ -967,6 +998,7 @@ document.addEventListener('DOMContentLoaded', () => {
             title: 'AI screening',
             body: `
 <p>Each unique record (title + abstract) is sent to the LLM with your criteria. For every criterion the model returns a score, quoted evidence and a rationale, and an overall <strong>Include / Exclude / Maybe</strong>. The prompt favours precision: no explicit evidence, no inclusion.</p>
+<p><strong>Decision strictness</strong> sets how readily a paper becomes <em>Maybe</em>: <em>Strict</em> keeps the review queue small (Maybe only for highly ambiguous but suggestive abstracts), <em>Balanced</em> sends every unclear abstract to review, <em>Lenient</em> excludes only clearly off-topic papers. Pick it before screening and report it; every result records the level, and one review cannot mix levels.</p>
 <p>For reproducibility the screening model is <strong>pinned to one concrete model</strong>; every result stores the model that judged it, and all prompts and raw responses are logged to <code>logs/screening.log</code>.</p>
 <p>When you report the review, state that an automation tool assisted title/abstract screening, name the model (see <em>model_version</em> in the CSV), and describe the human check that followed. The tool does not perform full-text eligibility assessment.</p>`,
             items: '<strong>PRISMA 2020</strong> item 8 (selection process: how records were screened, how many reviewers, and any automation tools used) and item 16a (records screened / excluded).',
