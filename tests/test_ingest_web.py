@@ -240,3 +240,18 @@ def test_report_summary_and_results(web, monkeypatch):
     assert r2["items"][1]["decision"] == "Failed"
     assert [x["id"] for x in asyncio.run(web.report_results(decision="maybe"))["items"]] == ["b"]
     assert [x["id"] for x in asyncio.run(web.report_results(q="gam"))["items"]] == ["c"]
+
+
+def test_chat_endpoint_passes_focus_and_validates(web, monkeypatch):
+    class _Req:
+        def __init__(self, payload): self._p = payload
+        async def json(self): return self._p
+    captured = {}
+    monkeypatch.setattr(web, "chat_ask", lambda messages, records, results, criteria, scope, focus=None:
+                        captured.update(scope=scope, focus=focus) or {"reply": "ok", "n_records": 0, "scope": scope})
+    res = asyncio.run(web.chat_endpoint(_Req({"messages": [{"role": "user", "content": "hi"}],
+                                             "scope": "included_maybe", "focus_record_id": " r1 "})))
+    assert res["reply"] == "ok" and captured == {"scope": "included_maybe", "focus": "r1"}
+    assert asyncio.run(web.chat_endpoint(_Req({"messages": [], "scope": "included"}))).status_code == 400
+    assert asyncio.run(web.chat_endpoint(_Req({"messages": [{"role": "user", "content": "x"}], "scope": "bogus"}))).status_code == 400
+    assert set(asyncio.run(web.chat_scope_counts())["scopes"]) == {"included", "included_maybe", "all_screened"}

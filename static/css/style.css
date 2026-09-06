@@ -651,3 +651,16 @@ details[open] > .summary-row h3::before { transform: rotate(90deg); }
     content: ""; position: absolute; left: calc(50% - 4px); bottom: -14px; border: 5px solid transparent; border-top-color: var(--text-secondary); z-index: 1;
 }
 @media (max-width: 800px) { .prisma-flow { grid-template-columns: 1fr; } .flow-stage { display: none; } .flow-main + .flow-side::before, .flow-main + .flow-side::after { display: none; } }
+
+/* Review: cards on the left, assistant on the right */
+.review-layout { display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 20px; align-items: start; }
+.review-chat { position: sticky; top: 0; }
+.review-chat .chat-card { height: calc(100vh - 7rem); min-height: 520px; }
+.review-area { max-width: none; }
+.chat-focus {
+    margin-top: 10px; padding: 8px 32px 8px 12px; border-radius: 8px; position: relative;
+    border: 1px solid var(--accent-blue); background: rgba(59, 130, 246, 0.1); font-size: 0.85rem;
+}
+.chat-focus strong { overflow-wrap: anywhere; }
+.chat-focus .box-close { top: 2px; right: 4px; }
+@media (max-width: 1100px) { .review-layout { grid-template-columns: 1fr; } .review-chat { position: static; } .review-chat .chat-card { height: 60vh; } }

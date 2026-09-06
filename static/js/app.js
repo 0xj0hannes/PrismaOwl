@@ -30,10 +30,9 @@ document.addEventListener('DOMContentLoaded', () => {
         tabPanes.forEach(p => p.classList.toggle('active', p.id === tabId));
         if (tabId === 'screen') updateScreenStats();
         if (tabId === 'ingest') loadIngestStats();
-        if (tabId === 'review') loadReviews();
+        if (tabId === 'review') { loadReviews(); loadChatScopes(); }
         if (tabId === 'strategy') { loadHarvestSources().then(() => { loadHarvestRuns(); pollHarvestJobs(); }); }
         if (tabId === 'criteria') { if (!criteriaPending) loadCriteriaEditor(); refreshCriteriaResetBox(); setStatus($('reset-status'), ''); }
-        if (tabId === 'chat') loadChatScopes();
         if (tabId === 'report') loadReport();
     }
     navLinks.forEach(link => link.addEventListener('click', () => showTab(link.getAttribute('data-tab'))));
@@ -634,10 +633,9 @@ document.addEventListener('DOMContentLoaded', () => {
         try { sessionStorage.setItem(RESET_BOX_DISMISSED, '1'); } catch (_) { /* ignore */ }
     });
 
-    $('btn-reset-results').addEventListener('click', async () => {
-        if (!confirm('Delete ALL screening results (including human review decisions)? Records are kept.')) return;
-        const st = $('reset-status');
-        const btn = $('btn-reset-results');
+    async function resetScreeningResults(btn, st) {
+        const n = $('stat-screened').textContent || '';
+        if (!confirm(`Delete ALL ${n} screening results (including human review decisions)? Records are kept and will be screened again from scratch.`)) return;
         btn.disabled = true;
         try {
             const r = await api('/api/screen/results', { method: 'DELETE' });
@@ -646,7 +644,9 @@ document.addEventListener('DOMContentLoaded', () => {
             updateScreenStats();
         } catch (e) { setStatus(st, 'Error: ' + e.message, 'error'); }
         finally { btn.disabled = false; }
-    });
+    }
+    $('btn-reset-results').addEventListener('click', () => resetScreeningResults($('btn-reset-results'), $('reset-status')));
+    $('btn-screen-reset').addEventListener('click', () => resetScreeningResults($('btn-screen-reset'), $('screen-reset-status')));
 
     // ------------------------------------------------------------------
     // Screening Logic
@@ -673,6 +673,7 @@ document.addEventListener('DOMContentLoaded', () => {
             modelWarn.classList.toggle('hidden', !!data.model_ok);
         }
 
+        $('btn-screen-reset').disabled = !!data.is_running || !(data.screened > 0);
         if (data.is_running) {
             btnStartScreen.disabled = true;
             screenProgress.classList.remove('hidden');
@@ -808,6 +809,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const excludeOptions = clone.querySelector('.exclude-options');
 
                 btnInclude.addEventListener('click', () => submitReview(item.record.id, 'Include', 'None', card));
+                clone.querySelector('.btn-ask').addEventListener('click', () => askAboutRecord(item.record));
                 btnExcludeInit.addEventListener('click', () => {
                     reviewActions.classList.add('hidden');
                     excludeOptions.classList.remove('hidden');
@@ -966,6 +968,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatScope = $('chat-scope');
     let chatHistory = [];
     let chatBusy = false;
+    let chatFocus = null;     // {id, title} of the record under discussion
+
+    function setChatFocus(record) {
+        chatFocus = record ? { id: record.id, title: record.title } : null;
+        $('chat-focus').classList.toggle('hidden', !chatFocus);
+        $('chat-focus-title').textContent = chatFocus ? `${chatFocus.title} [${chatFocus.id}]` : '';
+    }
+    $('btn-chat-focus-clear').addEventListener('click', () => setChatFocus(null));
+
+    function askAboutRecord(record) {
+        setChatFocus(record);
+        chatInput.value = `Assess [${record.id}] against each inclusion criterion: quote the evidence for and against, say what the abstract leaves unclear, and give your recommendation.`;
+        document.querySelector('.review-chat').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        sendChat();
+    }
 
     async function loadChatScopes() {
         try {
@@ -1020,10 +1037,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const typing = appendChat('assistant', 'Thinking…');
         typing.classList.add('typing');
         try {
-            const data = await postJSON('/api/chat', { messages: chatHistory, scope: chatScope.value });
+            const data = await postJSON('/api/chat', { messages: chatHistory, scope: chatScope.value,
+                focus_record_id: chatFocus ? chatFocus.id : null });
             typing.remove();
             chatHistory.push({ role: 'assistant', content: data.reply });
-            appendChat('assistant', data.reply, `${data.n_records} records in scope`);
+            appendChat('assistant', data.reply, `${data.n_records} records in scope${data.focus_id ? ' · discussing [' + data.focus_id + ']' : ''}`);
         } catch (e) {
             typing.remove();
             chatHistory.pop();
@@ -1108,6 +1126,7 @@ document.addEventListener('DOMContentLoaded', () => {
             title: 'Human-in-the-loop review',
             body: `
 <p>Records the model marked <strong>Maybe</strong> land here for a human decision. You see the abstract, the per-criterion scores, evidence and rationale, and decide Include or Exclude. Nothing is included in the final set without this step for uncertain cases.</p>
+<p>The assistant panel beside the cards has read the corpus. <em>Ask about this record</em> makes it weigh the card against each criterion with quoted evidence and a recommendation; you can also ask it anything about the included papers. It advises, you decide, and the human decision is what the report records.</p>
 <p>Consider having a second reviewer check a sample of the AI's confident Include / Exclude decisions as well, and record disagreements and how they were resolved.</p>`,
             items: '<strong>PRISMA 2020</strong> item 8 (selection process, including whether reviewers worked independently) and item 16b (records excluded, with reasons, where applicable).',
         },
@@ -1119,9 +1138,9 @@ document.addEventListener('DOMContentLoaded', () => {
             items: '<strong>PRISMA 2020</strong> item 16a (study selection results and flow diagram) and item 27 (availability of data and materials: the CSV and <code>screening.log</code> can be archived as supplementary material).',
         },
         chat: {
-            title: 'Ask the corpus',
+            title: 'Ask the assistant',
             body: `
-<p>A chatbot that has read the included records (or, if you widen the scope, also the Maybe or all screened records) and answers questions about them, citing record IDs. Use it to spot themes, compare methods, or find which papers mention something.</p>
+<p>A chatbot that has read the included records (or, if you widen the scope, also the Maybe or all screened records) and answers questions about them, citing record IDs. On the Review tab, <em>Ask about this record</em> puts the card under discussion: its full abstract, scores and rationales go to the model whatever the scope, and it assesses the record criterion by criterion with a recommendation. Use it to spot themes, compare methods, or find which papers mention something.</p>
 <p>It is an assistant for exploration, not a PRISMA stage: verify every claim against the full texts before it goes into your synthesis, and do not rely on it for eligibility decisions.</p>`,
             items: 'Supports the preparation of <strong>PRISMA 2020</strong> item 13 (synthesis methods) and item 20 (results of syntheses), but replaces neither.',
         },

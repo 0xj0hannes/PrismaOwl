@@ -10,7 +10,7 @@ truncated so the request still fits (set MODEL_CHAT to a long-context model).
 
 Used by both ``main.py chat`` (JSON files) and ``/api/chat`` (SQLite).
 """
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple, Optional
 
 from .llm import generate_chat
 
@@ -32,10 +32,20 @@ Rules:
 - If the corpus does not contain the answer, say so plainly instead of guessing.
 - When asked for overviews, group papers by theme and mention counts.
 - Keep answers concise; use bullet lists for enumerations.
-{criteria_block}
+{criteria_block}{focus_block}
 === CORPUS ===
 {corpus}
 === END CORPUS ===
+"""
+
+FOCUS_TEMPLATE = """
+=== RECORD UNDER REVIEW ===
+The human reviewer is currently deciding whether to include this record. When asked about it,
+assess it against each inclusion criterion in turn, quoting the title/abstract as evidence, say
+clearly what the abstract leaves uncertain, and end with a recommendation (Include, Exclude, or
+"needs the full text") - the reviewer makes the final decision, not you.
+{entry}
+=== END RECORD UNDER REVIEW ===
 """
 
 
@@ -98,7 +108,8 @@ def build_corpus(pairs: List[Tuple[Dict[str, Any], Dict[str, Any]]]) -> str:
 
 
 def build_system_prompt(pairs: List[Tuple[Dict[str, Any], Dict[str, Any]]], scope: str,
-                        criteria: Dict[str, Any]) -> str:
+                        criteria: Dict[str, Any],
+                        focus: Optional[Tuple[Dict[str, Any], Dict[str, Any]]] = None) -> str:
     scope_label = {
         "included": "included records only",
         "included_maybe": "included records plus unresolved Maybe cases",
@@ -111,16 +122,35 @@ def build_system_prompt(pairs: List[Tuple[Dict[str, Any], Dict[str, Any]]], scop
             lines.append(f"- {key} ({c.get('name', '')}): {c.get('definition', '')}")
         criteria_block = "\n".join(lines) + "\n"
     example_id = pairs[0][0]["id"] if pairs else "record_id"
+    focus_block = ""
+    if focus is not None:
+        focus_block = FOCUS_TEMPLATE.format(entry=_format_entry(focus[0], focus[1] or {}))
+        example_id = focus[0]["id"]
     return SYSTEM_TEMPLATE.format(scope_label=scope_label, n=len(pairs), example_id=example_id,
-                                  criteria_block=criteria_block,
+                                  criteria_block=criteria_block, focus_block=focus_block,
                                   corpus=build_corpus(pairs) if pairs else "(no records)")
 
 
 def ask(messages: List[Dict[str, str]], records: Iterable[Dict[str, Any]],
         results: Dict[str, Dict[str, Any]], criteria: Dict[str, Any],
-        scope: str = "included") -> Dict[str, Any]:
-    """Answer the latest user message given the full chat history."""
+        scope: str = "included", focus_record_id: Optional[str] = None) -> Dict[str, Any]:
+    """Answer the latest user message given the full chat history.
+
+    ``focus_record_id`` names the record the reviewer is currently deciding
+    on: it is placed in a dedicated block of the system prompt (with its full
+    abstract, scores and rationales) whatever the scope, so the assistant can
+    weigh it against the criteria."""
+    records = list(records)
     pairs = select_records(records, results, scope)
-    system_prompt = build_system_prompt(pairs, scope, criteria)
+    focus = None
+    if focus_record_id:
+        rec = next((r for r in records if r.get("id") == focus_record_id), None)
+        if rec is None:
+            raise ValueError(f"Record '{focus_record_id}' not found.")
+        focus = (rec, results.get(focus_record_id) or {})
+    system_prompt = build_system_prompt(pairs, scope, criteria, focus=focus)
     reply = generate_chat(messages, system_prompt)
-    return {"reply": reply, "n_records": len(pairs), "scope": scope}
+    out = {"reply": reply, "n_records": len(pairs), "scope": scope}
+    if focus is not None:
+        out["focus_id"] = focus_record_id
+    return out

@@ -233,3 +233,21 @@ def test_build_queries_handles_truncation_where_unsupported():
     assert q["crossref"] == "cybercriminal hacker"
     assert q["scopus"] == "TITLE-ABS-KEY((cybercrim* OR cybercriminal OR hacker*))"
     assert q["semantic_scholar"] == "(cybercrim* | cybercriminal | hacker*)"
+
+
+def test_ask_with_focus_record_adds_review_block_even_outside_scope(monkeypatch):
+    captured = {}
+
+    def fake_chat(messages, system_prompt, task="chat"):
+        captured["system"] = system_prompt
+        return "assessment"
+
+    monkeypatch.setattr(chat, "generate_chat", fake_chat)
+    # record "c" is Maybe, so it is outside the "included" scope; the focus block carries it anyway
+    out = chat.ask([{"role": "user", "content": "assess"}], RECORDS, RESULTS, {}, scope="included",
+                   focus_record_id="c")
+    assert out["focus_id"] == "c" and out["n_records"] == 2
+    assert "=== RECORD UNDER REVIEW ===" in captured["system"] and "[c] C" in captured["system"]
+    assert "the reviewer makes the final decision" in captured["system"]
+    with pytest.raises(ValueError):
+        chat.ask([{"role": "user", "content": "x"}], RECORDS, RESULTS, {}, focus_record_id="nope")

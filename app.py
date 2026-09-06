@@ -473,6 +473,39 @@ async def ingest_stats(limit: int = 100):
             "duplicate_list": page["items"], "duplicate_list_truncated": page["has_more"]}
 
 
+# ---------------------------------------------------------------------------
+# Chat over screened results (lives on the Review tab)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/chat/scope")
+async def chat_scope_counts():
+    records = get_unique_records()
+    results = get_all_screening_results()
+    return {"scopes": {scope: len(select_records(records, results, scope)) for scope in SCOPES}}
+
+
+@app.post("/api/chat")
+async def chat_endpoint(request: Request):
+    data = await request.json()
+    messages = data.get("messages") or []
+    scope = data.get("scope", "included")
+    focus_record_id = (data.get("focus_record_id") or "").strip() or None
+    if scope not in SCOPES:
+        return JSONResponse({"error": f"Unknown scope '{scope}'"}, status_code=400)
+    if not messages or messages[-1].get("role") != "user":
+        return JSONResponse({"error": "Send at least one user message."}, status_code=400)
+    records = get_unique_records()
+    results = get_all_screening_results()
+    criteria = load_config().get("CRITERIA", {})
+    try:
+        out = await asyncio.to_thread(chat_ask, messages, records, results, criteria, scope, focus_record_id)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except LLMError as e:
+        return JSONResponse({"error": e.user_message}, status_code=400)
+    return out
+
+
 @app.post("/api/ingest")
 async def ingest_file(files: List[UploadFile] = File(...)):
     new_records = []
