@@ -90,3 +90,11 @@ def get_unique_records():
         cursor = conn.cursor()
         cursor.execute('SELECT data FROM records WHERE is_duplicate = 0 OR is_duplicate IS NULL')
         return [json.loads(row['data']) for row in cursor.fetchall()]
+
+def clear_screening_results() -> int:
+    """Delete all screening results. Returns the number of rows removed."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM screening_results')
+        conn.commit()
+        return cursor.rowcount

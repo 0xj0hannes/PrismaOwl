@@ -6,8 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PrismaOwl</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css">
-    <meta name="description" content="PrismaOwl: AI-assisted PRISMA literature screening tool.">
+    <link rel="stylesheet" href="/static/css/style.css?v=4">
+    <meta name="description" content="PrismaOwl: AI-assisted PRISMA / SoK literature screening tool.">
 </head>
 
 <body>
@@ -19,8 +19,14 @@
                 <h1>PrismaOwl</h1>
             </div>
             <ul class="nav-links">
-                <li class="active" data-tab="ingest">
+                <li class="active" data-tab="strategy">
+                    <span class="icon">🔎</span> Search Strategy
+                </li>
+                <li data-tab="ingest">
                     <span class="icon">📥</span> Ingestion
+                </li>
+                <li data-tab="criteria">
+                    <span class="icon">📋</span> Criteria
                 </li>
                 <li data-tab="screen">
                     <span class="icon">🤖</span> Screening
@@ -31,13 +37,87 @@
                 <li data-tab="report">
                     <span class="icon">📊</span> Reports
                 </li>
+                <li data-tab="chat">
+                    <span class="icon">💬</span> Chat
+                </li>
             </ul>
+            <div class="sidebar-footer">
+                <span id="llm-model-label" title="Configured in .env (MODEL_NAME)">LLM: …</span>
+            </div>
         </nav>
 
         <!-- Main Content Area -->
         <main class="content">
+
+            <!-- Search Strategy Tab -->
+            <section id="strategy" class="tab-pane active">
+                <div class="header">
+                    <h2>Search Strategy</h2>
+                    <p>Let the LLM draft database queries from your research question, edit them, then harvest results
+                        straight from the databases as BibTeX.</p>
+                </div>
+
+                <div class="card glass wide mb-20">
+                    <h3>1. Research question</h3>
+                    <textarea id="strategy-topic" rows="3"
+                        placeholder="e.g. Psychological and behavioural characteristics of cybercriminal offenders (motives, traits, decision-making)"></textarea>
+                    <label class="field-label mt-10">Feedback for refinement (optional)</label>
+                    <textarea id="strategy-feedback" rows="2"
+                        placeholder="e.g. Add terms for insider threats; restrict to 2010 onwards; drop the 'hacktivism' concept"></textarea>
+                    <div class="btn-row mt-10">
+                        <button class="btn-primary" id="btn-strategy-generate">✨ Generate with AI</button>
+                        <button class="btn-outline" id="btn-strategy-refine">↻ Refine current with AI</button>
+                        <span class="status-inline" id="strategy-ai-status"></span>
+                    </div>
+                </div>
+
+                <div class="card glass wide mb-20">
+                    <div class="row-between">
+                        <h3>2. Concepts &amp; terms</h3>
+                        <button class="btn-outline btn-sm" id="btn-add-concept">+ Add concept</button>
+                    </div>
+                    <p class="info-text">Concepts are combined with AND; terms inside a concept with OR.</p>
+                    <div id="concepts-container" class="mt-10"></div>
+                    <div class="mt-10">
+                        <label class="field-label">Scope notes</label>
+                        <textarea id="strategy-scope" rows="2" placeholder="Date range, languages, document types…"></textarea>
+                    </div>
+                </div>
+
+                <div class="card glass wide mb-20">
+                    <div class="row-between">
+                        <h3>3. Database queries</h3>
+                        <div class="btn-row">
+                            <label class="field-label" for="harvest-max">Max records per run</label>
+                            <input type="number" id="harvest-max" value="500" min="1" max="5000" class="input-sm">
+                        </div>
+                    </div>
+                    <p class="info-text">Edit freely. <strong>Run</strong> harvests through the database's official API and
+                        saves a .bib file below; databases without an open API show a <em>manual export</em> hint.</p>
+                    <div id="queries-container" class="mt-10"></div>
+                    <details class="mt-10">
+                        <summary class="info-text">Rationale &amp; limitations (from the LLM)</summary>
+                        <label class="field-label mt-10">Rationale</label>
+                        <textarea id="strategy-rationale" rows="3"></textarea>
+                        <label class="field-label mt-10">Limitations</label>
+                        <textarea id="strategy-limitations" rows="2"></textarea>
+                    </details>
+                    <div class="btn-row mt-20">
+                        <button class="btn-success" id="btn-strategy-save">💾 Save strategy</button>
+                        <button class="btn-outline" id="btn-strategy-reload">Discard changes</button>
+                        <span class="status-inline" id="strategy-save-status"></span>
+                    </div>
+                </div>
+
+                <div class="card glass wide">
+                    <h3>4. Harvested files</h3>
+                    <div id="harvest-jobs" class="mt-10"></div>
+                    <div id="harvest-files" class="mt-10"></div>
+                </div>
+            </section>
+
             <!-- Ingestion Tab -->
-            <section id="ingest" class="tab-pane active">
+            <section id="ingest" class="tab-pane">
                 <div class="header">
                     <h2>Data Ingestion</h2>
                     <p>Upload your BibTeX files for automatic deduplication and parsing.</p>
@@ -49,6 +129,57 @@
                         <input type="file" id="bib-upload" accept=".bib" multiple hidden>
                     </div>
                     <div class="status-msg" id="upload-status"></div>
+                    <p class="info-text mt-10">Files harvested on the <strong>Search Strategy</strong> tab can be ingested
+                        directly from there.</p>
+                </div>
+            </section>
+
+            <!-- Criteria Tab -->
+            <section id="criteria" class="tab-pane">
+                <div class="header">
+                    <h2>Inclusion Criteria</h2>
+                    <p>Draft criteria with the LLM, edit them, and save. They drive the screening prompt, the review
+                        buttons and the CSV columns.</p>
+                </div>
+
+                <div class="card glass wide mb-20">
+                    <h3>AI assistant</h3>
+                    <label class="field-label">Research question / topic</label>
+                    <textarea id="criteria-topic" rows="2" placeholder="Defaults to the saved search strategy's research question"></textarea>
+                    <label class="field-label mt-10">Feedback (optional)</label>
+                    <textarea id="criteria-feedback" rows="2"
+                        placeholder="e.g. Merge IC2 and IC3; add a criterion requiring empirical data; be stricter about victim-only studies"></textarea>
+                    <div class="btn-row mt-10">
+                        <label class="field-label" for="criteria-count">How many</label>
+                        <select id="criteria-count" class="input-sm">
+                            <option value="">auto</option>
+                            <option>2</option><option>3</option><option>4</option><option>5</option>
+                        </select>
+                        <button class="btn-primary" id="btn-criteria-draft">✨ Draft new set</button>
+                        <button class="btn-outline" id="btn-criteria-refine">↻ Refine current</button>
+                        <span class="status-inline" id="criteria-ai-status"></span>
+                    </div>
+                    <p class="info-text mt-10">Proposals land in the editor below as an unsaved draft. Nothing changes until
+                        you press <strong>Save</strong>.</p>
+                </div>
+
+                <div class="card glass wide">
+                    <div class="row-between">
+                        <h3>Editor <span class="badge badge-draft hidden" id="criteria-draft-badge">unsaved draft</span></h3>
+                        <button class="btn-outline btn-sm" id="btn-add-criterion">+ Add criterion</button>
+                    </div>
+                    <div id="criteria-editor" class="mt-10"></div>
+                    <div class="btn-row mt-20">
+                        <button class="btn-success" id="btn-criteria-save">💾 Save criteria</button>
+                        <button class="btn-outline" id="btn-criteria-revert">Revert to saved</button>
+                        <span class="status-inline" id="criteria-save-status"></span>
+                    </div>
+                    <div class="warn-box mt-20">
+                        <p><strong>Changing criteria after screening?</strong> Existing results were judged against the
+                            old criteria. Reset them so the corpus is re-screened on the next run.</p>
+                        <button class="btn-danger btn-sm mt-10" id="btn-reset-results">Reset all screening results</button>
+                        <span class="status-inline" id="reset-status"></span>
+                    </div>
                 </div>
             </section>
 
@@ -60,7 +191,10 @@
                 </div>
 
                 <div class="card glass mb-20 criteria-box">
-                    <h3 style="margin-bottom: 12px;">Active Inclusion Criteria</h3>
+                    <div class="row-between">
+                        <h3 style="margin-bottom: 12px;">Active Inclusion Criteria</h3>
+                        <button class="btn-outline btn-sm" data-goto="criteria">Edit</button>
+                    </div>
                     <ul id="active-criteria-list" style="list-style-position: inside; color: var(--text-secondary);">
                         <!-- Dynamically populated by app.js -->
                     </ul>
@@ -78,6 +212,11 @@
                         </div>
                     </div>
 
+                    <p class="screen-model-line mt-20">
+                        Screening model (pinned for reproducibility, <code>MODEL_SCREENING</code> in <code>.env</code>):
+                        <code id="screen-model">…</code>
+                    </p>
+                    <p id="screen-model-warning" class="screen-model-warning hidden"></p>
                     <button class="btn-primary mt-20" id="btn-start-screen">Start Screening</button>
                     <div class="progress-container mt-20 hidden" id="screen-progress">
                         <div style="display: flex; gap: 12px; margin-bottom: 8px; align-items: center;">
@@ -116,6 +255,38 @@
                     <p class="mt-10 info-text">This will create a final statistical report for your review analysis.</p>
                 </div>
             </section>
+
+            <!-- Chat Tab -->
+            <section id="chat" class="tab-pane">
+                <div class="header">
+                    <h2>Ask the corpus</h2>
+                    <p>Chat with an LLM that has read every included record. Answers cite record IDs.</p>
+                </div>
+                <div class="card glass wide chat-card">
+                    <div class="row-between chat-toolbar">
+                        <div class="btn-row">
+                            <label class="field-label" for="chat-scope">Scope</label>
+                            <select id="chat-scope" class="input-sm">
+                                <option value="included">Included</option>
+                                <option value="included_maybe">Included + Maybe</option>
+                                <option value="all_screened">All screened</option>
+                            </select>
+                            <span class="info-text" id="chat-scope-count"></span>
+                        </div>
+                        <button class="btn-outline btn-sm" id="btn-chat-clear">Clear conversation</button>
+                    </div>
+                    <div class="chat-window" id="chat-window">
+                        <div class="chat-msg assistant">
+                            <div class="bubble">Ask me anything about the included papers: themes, methods, gaps,
+                                which studies discuss a specific construct, and so on.</div>
+                        </div>
+                    </div>
+                    <form class="chat-input-row" id="chat-form">
+                        <textarea id="chat-input" rows="2" placeholder="e.g. Which papers use the Dark Triad? Summarise the main motives reported."></textarea>
+                        <button type="submit" class="btn-primary" id="btn-chat-send">Send</button>
+                    </form>
+                </div>
+            </section>
         </main>
     </div>
 
@@ -144,7 +315,34 @@
         </div>
     </template>
 
-    <script src="/static/js/app.js?v=2"></script>
+    <!-- Criterion editor row template -->
+    <template id="criterion-template">
+        <div class="criterion-card">
+            <div class="row-between">
+                <div class="btn-row">
+                    <label class="field-label">Key</label>
+                    <input type="text" class="crit-key input-sm" placeholder="IC1">
+                    <label class="field-label">Name</label>
+                    <input type="text" class="crit-name input-md" placeholder="Short label">
+                </div>
+                <button class="btn-outline btn-sm crit-remove" title="Remove criterion">✕</button>
+            </div>
+            <label class="field-label mt-10">Definition</label>
+            <textarea class="crit-definition" rows="2"></textarea>
+            <div class="two-col mt-10">
+                <div>
+                    <label class="field-label">Signals</label>
+                    <textarea class="crit-signals" rows="3"></textarea>
+                </div>
+                <div>
+                    <label class="field-label">Negative indicators</label>
+                    <textarea class="crit-negative" rows="3"></textarea>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script src="/static/js/app.js?v=5"></script>
 </body>
 
 </html>

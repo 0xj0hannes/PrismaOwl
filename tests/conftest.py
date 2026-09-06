@@ -2,7 +2,7 @@
 
 These tests exercise the deterministic core of the pipeline (ingestion,
 deduplication, prompt generation, reporting) and the LLM-orchestration logic
-in ``screen_record`` with the Gemini client mocked. No network access or API
+in ``screen_record`` with the OrcaRouter client mocked. No network access or API
 key is required to run the suite.
 """
 import sys

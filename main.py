@@ -28,6 +28,39 @@ def main():
     report_parser.add_argument("--input", default="data/final_included.json", help="Path to final dataset")
     report_parser.add_argument("--output", default="data/screening_report.csv", help="Path to output CSV")
 
+    # --- SoK / PRISMA extension commands -------------------------------------
+    # Search-strategy builder (LLM)
+    query_parser = subparsers.add_parser("query", help="Build/refine database search queries with the LLM")
+    query_parser.add_argument("--topic", default="", help="Research question / topic (omit to reuse the saved one)")
+    query_parser.add_argument("--feedback", default="", help="Feedback to refine the saved strategy")
+    query_parser.add_argument("--show", action="store_true", help="Only print the saved strategy")
+    query_parser.add_argument("--output", default=None, help="Path to the strategy JSON (default: search_strategy.json)")
+
+    # Database harvesting
+    harvest_parser = subparsers.add_parser("harvest", help="Run a query against a database API and save BibTeX")
+    harvest_parser.add_argument("--source", required=False, help="openalex | semantic_scholar | arxiv | crossref | scopus | ieee")
+    harvest_parser.add_argument("--query", default=None, help="Query string (default: the saved strategy's query for --source)")
+    harvest_parser.add_argument("--max", type=int, default=500, help="Maximum records to fetch (default 500)")
+    harvest_parser.add_argument("--output", default=None, help="Output .bib path (default: data/harvest/<source>_<timestamp>.bib)")
+    harvest_parser.add_argument("--list-sources", action="store_true", help="List sources and their availability")
+
+    # Inclusion-criteria assistant (LLM)
+    crit_parser = subparsers.add_parser("criteria", help="Draft/refine inclusion criteria with the LLM")
+    crit_parser.add_argument("--topic", default="", help="Research question / topic (omit to reuse the saved strategy's)")
+    crit_parser.add_argument("--feedback", default="", help="Feedback to refine the current criteria")
+    crit_parser.add_argument("--count", type=int, default=None, help="Number of criteria to propose")
+    crit_parser.add_argument("--fresh", action="store_true", help="Ignore the current criteria.json when generating")
+    crit_parser.add_argument("--show", action="store_true", help="Only print the current criteria")
+    crit_parser.add_argument("--output", default=None, help="Where to write the criteria (default: criteria.json)")
+    crit_parser.add_argument("--yes", action="store_true", help="Overwrite without confirmation")
+
+    # Chat over the screened corpus
+    chat_parser = subparsers.add_parser("chat", help="Ask questions about the included records")
+    chat_parser.add_argument("--input", default="data/final_included.json", help="Screened/reviewed dataset")
+    chat_parser.add_argument("--scope", default="included", choices=["included", "included_maybe", "all_screened"],
+                             help="Which records the bot can see (default: included)")
+    chat_parser.add_argument("--ask", default=None, help="Ask a single question and exit instead of starting a REPL")
+
     args = parser.parse_args()
 
     # Ensure output directory exists for all commands that have an output argument
@@ -80,9 +113,12 @@ def main():
             sys.exit(1)
 
         config = load_config()
-        if not config.get("GEMINI_API_KEY"):
-            print("Error: GEMINI_API_KEY not found in .env file.")
-            print("Please create a .env file with GEMINI_API_KEY=your_key_here")
+        if not config.get("LLM_API_KEY"):
+            from src.llm import provider_settings
+            ps = provider_settings(config)
+            print(f"Error: {ps['key_env']} not found in .env file (LLM provider: {ps['label']}).")
+            print(f"Please create a .env file with {ps['key_env']}=... (see .env.example). "
+                  "Set LLM_PROVIDER=orcarouter or LLM_PROVIDER=gemini to choose the provider.")
             sys.exit(1)
 
         with open(args.input, 'r') as f:
@@ -104,6 +140,16 @@ def main():
                     print(f"  Loaded {len(already_screened)} existing results.")
             except Exception as e:
                 print(f"  Could not load existing results: {e}. Starting fresh.")
+
+        # Reproducibility: screening must be pinned to one concrete model, and
+        # it must be the model that produced any results we are resuming.
+        from src.screening import check_screening_setup
+        from src.llm import ScreeningModelError
+        try:
+            print(f"Screening model: {check_screening_setup(already_screened)}")
+        except ScreeningModelError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
 
         # Prepare output data structure
         output_data = data
@@ -155,6 +201,131 @@ def main():
         print(f"Generating report from {args.input}...")
         from src.reporting import generate_report
         generate_report(args.input, args.output)
+
+    elif args.command == "query":
+        from src.config import load_search_strategy, save_search_strategy, SEARCH_STRATEGY_PATH
+        from src.search_strategy import generate_strategy, format_strategy
+        from src.llm import LLMError
+        path = args.output or SEARCH_STRATEGY_PATH
+        current = load_search_strategy(path)
+        if args.show:
+            if not current:
+                print(f"No strategy saved at {path}. Run: python3 main.py query --topic \"...\"")
+                sys.exit(1)
+            print(format_strategy(current))
+            return
+        topic = args.topic or current.get("research_question", "")
+        if not topic:
+            print("Error: --topic is required the first time (no saved strategy found).")
+            sys.exit(1)
+        print("Asking the LLM to build the search strategy...")
+        try:
+            strategy = generate_strategy(topic, current=current or None, feedback=args.feedback)
+        except (LLMError, ValueError) as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+        save_search_strategy(strategy, path)
+        print(format_strategy(strategy))
+        print(f"\nSaved to {path}. Edit it by hand or via the web UI, then run 'harvest'.")
+
+    elif args.command == "harvest":
+        from src.harvest import harvest_to_file, list_sources, HarvestError, PROVIDERS
+        if args.list_sources:
+            for s_ in list_sources():
+                state = "manual export only" if s_["manual"] else ("ready" if s_["available"] else "needs API key")
+                print(f"  {s_['key']:<18} {s_['label']:<22} {state}")
+                print(f"  {'':<18} {s_['note']}")
+            return
+        if not args.source:
+            print("Error: --source is required (or use --list-sources).")
+            sys.exit(1)
+        query = args.query
+        if not query:
+            from src.config import load_search_strategy
+            query = (load_search_strategy().get("queries") or {}).get(args.source, "")
+            if not query:
+                print(f"Error: no saved query for '{args.source}'. Pass --query or run 'query' first.")
+                sys.exit(1)
+            print(f"Using saved query for {args.source}:\n  {query}")
+
+        def progress(n, total):
+            print(f"  fetched {n}" + (f" / {total}" if total is not None else "") + "...")
+
+        try:
+            summary = harvest_to_file(args.source, query, output=args.output, max_results=args.max, progress=progress)
+        except HarvestError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+        print(f"Saved {summary['count']} records ({summary['with_abstract']} with abstracts) to {summary['file']}")
+        print(f"Next: python3 main.py ingest {summary['file']} --output data/deduplicated.json")
+
+    elif args.command == "criteria":
+        from src.config import load_criteria, save_criteria, load_search_strategy, CRITERIA_PATH
+        from src.criteria_assist import generate_criteria, format_criteria
+        from src.llm import LLMError
+        path = args.output or CRITERIA_PATH
+        current = load_criteria(path)
+        if args.show:
+            print(format_criteria(current) if current else f"No criteria found at {path}.")
+            return
+        topic = args.topic or load_search_strategy().get("research_question", "")
+        if not topic:
+            print("Error: --topic is required (no saved search strategy to take it from).")
+            sys.exit(1)
+        print("Asking the LLM to draft inclusion criteria...")
+        try:
+            proposed = generate_criteria(topic, current=None if args.fresh else (current or None),
+                                         feedback=args.feedback, count=args.count)
+        except (LLMError, ValueError) as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+        print(format_criteria(proposed))
+        if current and not args.yes:
+            answer = input(f"\nOverwrite {path}? [y/N] ").strip().lower()
+            if answer != "y":
+                print("Not saved. Re-run with --yes to skip this prompt.")
+                return
+        save_criteria(proposed, path)
+        print(f"Saved to {path}. Screening prompts, CSV columns and the web UI pick this up automatically.")
+
+    elif args.command == "chat":
+        if not os.path.exists(args.input):
+            print(f"Error: Input file '{args.input}' not found. Run 'screen' (and ideally 'review') first.")
+            sys.exit(1)
+        from src.chat import ask, select_records
+        from src.llm import LLMError
+        with open(args.input, 'r') as f:
+            data = json.load(f)
+        records = data.get("records", [])
+        results = data.get("screening_results", {})
+        criteria = load_config().get("CRITERIA", {})
+        n = len(select_records(records, results, args.scope))
+        print(f"Chatting over {n} records (scope: {args.scope}). Type 'exit' to quit.")
+        history = []
+
+        def turn(question):
+            history.append({"role": "user", "content": question})
+            try:
+                out = ask(history, records, results, criteria, scope=args.scope)
+            except LLMError as e:
+                history.pop()
+                print(f"Error: {e}")
+                return
+            history.append({"role": "assistant", "content": out["reply"]})
+            print(f"\n{out['reply']}\n")
+
+        if args.ask:
+            turn(args.ask)
+            return
+        try:
+            while True:
+                q = input("you> ").strip()
+                if q.lower() in {"exit", "quit", "q"}:
+                    break
+                if q:
+                    turn(q)
+        except (KeyboardInterrupt, EOFError):
+            print()
 
 if __name__ == "__main__":
     main()
