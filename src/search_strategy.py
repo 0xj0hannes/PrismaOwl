@@ -8,7 +8,7 @@ project root (next to ``criteria.json``) and shared by the CLI and the web UI:
   "research_question": "...",
   "scope_notes": "...",
   "concepts": [
-    {"name": "Cybercrime", "terms": ["cybercrim*", "computer crime", ...]}
+    {"name": "Intervention", "terms": ["mindfulness*", "meditation", ...]}
   ],
   "queries": {
     "scopus": "TITLE-ABS-KEY(...)",
