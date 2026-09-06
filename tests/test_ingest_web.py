@@ -81,3 +81,26 @@ def test_ingest_all_reads_every_harvested_file(web, tmp_path):
 
 def _ingest(web, records):
     return web._ingest_records(records)
+
+
+def test_reingesting_same_file_is_skipped_and_key_clash_gets_new_id(web):
+    _ingest(web, [make_record(id="smith2020", doi="10.1/a", source_file="f1.bib")])
+    # Same key, same file: already ingested, nothing changes, canonical row untouched.
+    r = _ingest(web, [make_record(id="smith2020", doi="10.1/a", source_file="f1.bib")])
+    assert r["already_ingested"] == 1 and r["new_unique"] == 0 and r["new_duplicates"] == 0
+    rows = {x["id"]: x for x in db.get_all_records()}
+    assert rows["smith2020"]["is_duplicate"] is False and len(rows) == 1
+
+    # Same key from another file but a different paper: renamed, stays unique.
+    r = _ingest(web, [make_record(id="smith2020", title="A Different Paper", doi="10.1/z", source_file="f2.bib")])
+    assert r["new_unique"] == 1
+    rows = {x["id"]: x for x in db.get_all_records()}
+    assert set(rows) == {"smith2020", "smith2020_2"}
+    assert rows["smith2020"]["is_duplicate"] is False and rows["smith2020_2"]["is_duplicate"] is False
+
+    # Same key from another file and the same paper: renamed and flagged duplicate of the original.
+    r = _ingest(web, [make_record(id="smith2020", doi="10.1/a", source_file="f3.bib")])
+    assert r["new_duplicates"] == 1
+    rows = {x["id"]: x for x in db.get_all_records()}
+    assert rows["smith2020_3"]["is_duplicate"] is True and rows["smith2020_3"]["duplicate_of"] == "smith2020"
+    assert rows["smith2020"]["is_duplicate"] is False

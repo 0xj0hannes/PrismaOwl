@@ -363,13 +363,31 @@ def _ingest_records(new_records: List[Record]) -> Dict[str, Any]:
     (``get_unique_records``).
     """
     existing = [Record(**r) for r in get_all_records()]
-    canonical, duplicates = split_duplicates(existing + new_records)
-    for rec in existing + new_records:
+    # Record ids are BibTeX keys, so they are only unique within one file.
+    # A record we already hold from the same file is a re-ingest: skip it.
+    # A key clash with a different file gets a fresh id so nothing is overwritten.
+    by_id = {r.id: r for r in existing}
+    taken = set(by_id)
+    fresh, already = [], 0
+    for rec in new_records:
+        held = by_id.get(rec.id)
+        if held is not None and held.source_file == rec.source_file:
+            already += 1
+            continue
+        if rec.id in taken:
+            base, n = rec.id, 2
+            while f"{base}_{n}" in taken:
+                n += 1
+            rec.id = f"{base}_{n}"
+        taken.add(rec.id)
+        fresh.append(rec)
+    canonical, duplicates = split_duplicates(existing + fresh)
+    for rec in existing + fresh:
         save_record(rec.model_dump())
-    new_ids = {r.id for r in new_records}
+    new_ids = {r.id for r in fresh}
     new_dup = sum(1 for r in duplicates if r.id in new_ids)
-    return {"status": "success", "uploaded": len(new_records),
-            "new_unique": len(new_records) - new_dup, "new_duplicates": new_dup,
+    return {"status": "success", "uploaded": len(new_records), "already_ingested": already,
+            "new_unique": len(fresh) - new_dup, "new_duplicates": new_dup,
             "total_unique_db": len(canonical), "total_duplicates_db": len(duplicates),
             "total_records_db": len(canonical) + len(duplicates)}
 

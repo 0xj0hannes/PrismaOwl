@@ -124,7 +124,8 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const r = await postJSON('/api/harvest/ingest-all', {});
             const failed = r.files.filter(x => x.error);
-            setStatus(st, `Read ${r.uploaded} records from ${r.files.length} file(s): ${r.new_unique} new unique, ${r.new_duplicates} duplicates. Corpus: ${r.total_unique_db} unique.`
+            setStatus(st, `Read ${r.uploaded} records from ${r.files.length} file(s): ${r.new_unique} new unique, ${r.new_duplicates} duplicates`
+                + (r.already_ingested ? `, ${r.already_ingested} already in the corpus` : '') + `. Corpus: ${r.total_unique_db} unique.`
                 + (failed.length ? ` ${failed.length} file(s) could not be parsed.` : ''), failed.length ? 'error' : 'success');
             loadIngestStats();
         } catch (e) {
