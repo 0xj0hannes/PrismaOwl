@@ -122,7 +122,10 @@
                         <span class="status-inline" id="strategy-build-status"></span>
                     </div>
                     <div id="queries-container" class="mt-10"></div>
-                    <p class="status-inline mt-20" id="strategy-save-status" title="Every change is saved automatically to search_strategy.json, which the CLI reads too."></p>
+                    <div class="row-between mt-20">
+                        <p class="status-inline" id="strategy-save-status" title="Every change is saved automatically to the database."></p>
+                        <a class="btn-outline btn-sm" href="/api/search-strategy/export" style="text-decoration:none" title="Download the strategy as JSON for your protocol or methods section">⬇ Export JSON</a>
+                    </div>
                 </div>
 
                 <div class="card glass wide">
@@ -242,10 +245,15 @@
                 <div class="card glass wide">
                     <div class="row-between">
                         <h3>Editor</h3>
-                        <button class="btn-outline btn-sm" id="btn-add-criterion">+ Add criterion</button>
+                        <div class="btn-row">
+                            <a class="btn-outline btn-sm" href="/api/criteria/export" style="text-decoration:none" title="Download the criteria as JSON (for the protocol, or to import elsewhere)">⬇ Export JSON</a>
+                            <button class="btn-outline btn-sm" id="btn-criteria-import" type="button" title="Replace the criteria with a JSON file exported from PrismaOwl">⬆ Import JSON</button>
+                            <input type="file" id="criteria-import-file" accept=".json,application/json" hidden>
+                            <button class="btn-outline btn-sm" id="btn-add-criterion">+ Add criterion</button>
+                        </div>
                     </div>
                     <div id="criteria-editor" class="mt-10"></div>
-                    <p class="status-inline mt-20" id="criteria-save-status" title="Every change is saved automatically to criteria.json, which the CLI reads too. Saving waits while a screening batch is running."></p>
+                    <p class="status-inline mt-20" id="criteria-save-status" title="Every change is saved automatically to the database. Saving waits while a screening batch is running."></p>
                     <div class="warn-box mt-20 hidden" id="criteria-reset-box">
                         <button class="box-close" id="btn-reset-box-close" type="button" aria-label="Dismiss this notice" title="Dismiss for this session">×</button>
                         <p><strong>Changing criteria after screening?</strong> <span id="criteria-reset-count"></span>
@@ -685,7 +693,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=27"></script>
+    <script src="/static/js/app.js?v=28"></script>
 </body>
 
 </html>

@@ -50,6 +50,54 @@ def init_db():
         if "harvest_id" not in cols:
             cursor.execute("ALTER TABLE records ADD COLUMN harvest_id TEXT")
 
+        # Project documents (inclusion criteria, search strategy) live here too.
+        _ensure_documents(conn)
+        conn.commit()
+
+    _import_legacy_files()
+
+
+def _ensure_documents(conn) -> None:
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS documents (
+            key TEXT PRIMARY KEY,
+            data TEXT,
+            updated TEXT
+        )
+    ''')
+
+
+def _import_legacy_files() -> None:
+    """One-time migration: criteria.json / search_strategy.json in the project
+    root (the pre-database storage) are imported when the database has no
+    such document yet. The files are left in place and ignored afterwards."""
+    from .config import CRITERIA_PATH, SEARCH_STRATEGY_PATH   # local import: config imports db
+    for key, path in (("criteria", CRITERIA_PATH), ("search_strategy", SEARCH_STRATEGY_PATH)):
+        if get_document(key) is not None or not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict) and data:
+            save_document(key, data)
+
+
+def get_document(key: str):
+    """A stored JSON document (dict) or None."""
+    with get_db() as conn:
+        _ensure_documents(conn)
+        row = conn.execute('SELECT data FROM documents WHERE key = ?', (key,)).fetchone()
+        return json.loads(row['data']) if row else None
+
+
+def save_document(key: str, data: dict) -> None:
+    from datetime import datetime
+    with get_db() as conn:
+        _ensure_documents(conn)
+        conn.execute('INSERT OR REPLACE INTO documents (key, data, updated) VALUES (?, ?, ?)',
+                     (key, json.dumps(data, ensure_ascii=False), datetime.now().isoformat(timespec="seconds")))
         conn.commit()
 
 @contextmanager

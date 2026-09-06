@@ -22,7 +22,7 @@ This tool takes a complementary, zero-shot approach: it sends each record to an 
 - 🔎 **Search-strategy builder**: turn a research question into concept blocks and one ready-to-paste Boolean query per database (Scopus, Web of Science, IEEE Xplore, ACM DL, OpenAlex, Semantic Scholar, arXiv, Crossref). Rebuild the queries from edited concepts without an LLM call; a year range in the scope notes becomes a date filter everywhere.
 - 🌐 **Harvesting into the corpus**: run a query against a database's official API (OpenAlex, Semantic Scholar, arXiv, Crossref without a key; Scopus and IEEE Xplore with a key). Hits are deduplicated and stored as a *harvest run* that remembers the query, database, date and year range, and can be exported as `.bib`.
 - 📥 **Ingestion dashboard**: records identified, duplicates removed (with the reason and the record kept), per-source breakdown, drag-and-drop for BibTeX exports from databases without an API.
-- 📋 **Criteria assistant and editor**: draft or refine inclusion criteria from the research question, edit every field; changes save automatically.
+- 📋 **Criteria assistant and editor**: draft or refine inclusion criteria from the research question, edit every field; changes save automatically. Export the criteria and the search strategy as JSON for the protocol, and import a colleague's criteria to start from.
 - 🔬 **Criterion-by-criterion screening**: every record gets a score, quoted evidence and a rationale per criterion plus an Include / Exclude / Maybe decision, at a **strictness** you choose (precision first, balanced, or recall first).
 - 🔒 **Reproducible by construction**: screening is pinned to one named model and one strictness level per review; the model that actually judged each record is recorded, and the batch refuses to mix models or levels.
 - 🤝 **Human-in-the-loop review with an assistant**: decide the `Maybe` cases with the corpus chatbot beside the cards; *Ask about this record* makes it weigh a paper against each criterion with quoted evidence and a recommendation. The decision stays yours.
@@ -79,11 +79,11 @@ Press **Save**. Optional harvester credentials (an e-mail for OpenAlex/Crossref'
 
 The sidebar follows the review in order, and every tab ends with a **Next** button. `#<tab>` in the URL (for example `/#screen`) opens a tab directly.
 
-1. **Search Strategy.** Enter your research question and press **Generate with AI** to get concept blocks (synonyms combined with OR, concepts combined with AND) and one query per database in that database's own syntax. Edit anything: once a strategy exists the button becomes **Refine with AI** and sends your concepts, queries and feedback to the model; **Start over from the research question** regenerates from scratch; **Rebuild from concepts** recomposes every query deterministically without an LLM call. A year range in the scope notes ("2010 onwards", "2015-2024") is written into the Scopus, Web of Science and arXiv queries and applied as an API filter when harvesting the others. Press **Run harvest** on any database with an open API: the hits are deduplicated into the corpus as a stored harvest run, downloadable as `.bib`. ACM DL and Web of Science have no open API; paste the query into their advanced search and upload the export on the next tab. Every edit saves automatically. The **Advanced** section holds the LLM's rationale and the limitations of the search, for your methods section.
+1. **Search Strategy.** Enter your research question and press **Generate with AI** to get concept blocks (synonyms combined with OR, concepts combined with AND) and one query per database in that database's own syntax. Edit anything: once a strategy exists the button becomes **Refine with AI** and sends your concepts, queries and feedback to the model; **Start over from the research question** regenerates from scratch; **Rebuild from concepts** recomposes every query deterministically without an LLM call. A year range in the scope notes ("2010 onwards", "2015-2024") is written into the Scopus, Web of Science and arXiv queries and applied as an API filter when harvesting the others. Press **Run harvest** on any database with an open API: the hits are deduplicated into the corpus as a stored harvest run, downloadable as `.bib`. ACM DL and Web of Science have no open API; paste the query into their advanced search and upload the export on the next tab. Every edit saves automatically to the database; **Export JSON** downloads the strategy for your protocol or methods section. The **Advanced** section holds the LLM's rationale and the limitations of the search.
 
 2. **Ingestion.** Records identified, unique records to screen, duplicates removed, per-source counts, and the list of harvest runs with what each contributed. Drag-and-drop `.bib` exports to add them. Duplicates (matched by DOI, or by normalised title + year + first author) are kept for the audit trail, listed with the record that was kept, and never screened. **Flush all ingested data** starts over with an empty corpus.
 
-3. **Criteria.** Let the LLM draft inclusion criteria from your research question (or refine the current set with feedback) and edit every field: name, definition, signals to look for, negative indicators that must not count as evidence. Changes save automatically. The criteria are the only place your research field enters the tool; they drive the screening prompt, the review buttons, the chat context and the CSV columns. Fix them before screening; changing them afterwards means resetting the results and screening again.
+3. **Criteria.** Let the LLM draft inclusion criteria from your research question (or refine the current set with feedback) and edit every field: name, definition, signals to look for, negative indicators that must not count as evidence. Changes save automatically to the database; **Export JSON** downloads the set for your protocol and **Import JSON** replaces it with a file exported from another review (a sample set to try things out is in `examples/criteria.sample.json`). The criteria are the only place your research field enters the tool; they drive the screening prompt, the review buttons, the chat context and the CSV columns. Fix them before screening; changing them afterwards means resetting the results and screening again.
 
 4. **Screening.** Choose the **decision strictness** — *Strict* (precision first, `Maybe` is rare), *Balanced* (every unclear abstract goes to review) or *Lenient* (recall first, only clearly off-topic papers are excluded) — and press **Start Screening**. Each unique record is sent to the pinned model with your criteria; the background job saves every result immediately, survives closed tabs, waits out rate limits, and stops on fatal errors with an explanation. **Reset screening results** clears the results to screen again from scratch.
 
@@ -111,9 +111,7 @@ Meta-models remain fine for query building, criteria drafting and chat.
 
 | Path | Contents |
 | :--- | :--- |
-| `data/prisma.db` | SQLite corpus: records (duplicates flagged), harvest runs, screening results and human decisions. Back it up to keep a review. |
-| `criteria.json` | Your inclusion criteria (the repository ships a sample set; the app overwrites it as you edit). |
-| `search_strategy.json` | Your research question, concepts, scope notes and queries. |
+| `data/prisma.db` | SQLite database holding the whole review: records (duplicates flagged), harvest runs, screening results and human decisions, plus the inclusion criteria and the search strategy. Back up this one file to keep a review. |
 | `.env` | Provider keys, models and settings written by the Settings dialog. Never commit it. |
 | `logs/screening.log` | Full prompts and raw LLM responses for the audit trail. |
 
@@ -121,7 +119,7 @@ Meta-models remain fine for query building, criteria drafting and chat.
 
 ## 🛠️ Command line (deprecated)
 
-`main.py` still offers a file-based pipeline (`query`, `harvest`, `criteria`, `ingest`, `screen`, `review`, `report`, `chat`) that works on JSON and `.bib` files rather than the web corpus, and `test_llm.py` smoke-tests a provider from the terminal. **Both are deprecated and will be removed in a future release**: they receive no new features, they do not see the web corpus, and everything they do is available in the web interface (the Settings dialog replaces `test_llm.py`). Use `python3 main.py --help` if you still need them.
+`main.py` still offers a file-based pipeline (`query`, `harvest`, `criteria`, `ingest`, `screen`, `review`, `report`, `chat`) that works on JSON and `.bib` files rather than the web corpus (it reads the criteria and strategy from the app's database unless you pass `--output`), and `test_llm.py` smoke-tests a provider from the terminal. **Both are deprecated and will be removed in a future release**: they receive no new features, they do not see the web corpus, and everything they do is available in the web interface (the Settings dialog replaces `test_llm.py`). Use `python3 main.py --help` if you still need them.
 
 ---
 
@@ -137,7 +135,7 @@ Meta-models remain fine for query building, criteria drafting and chat.
 | `src/search_strategy.py` | LLM search-strategy builder, deterministic query builder, year-range parsing. |
 | `src/harvest.py` | Database harvesters (OpenAlex, Semantic Scholar, arXiv, Crossref, Scopus, IEEE) and BibTeX import/export. |
 | `src/deduplication.py` | DOI and title/year/author deduplication. |
-| `src/criteria_assist.py` | LLM inclusion-criteria assistant and `criteria.json` validation. |
+| `src/criteria_assist.py` | LLM inclusion-criteria assistant and criteria validation. |
 | `src/chat.py` | Assistant over the screened corpus, with the record-under-review focus. |
 | `src/reporting.py` | CSV report. |
 | `static/` | Vanilla HTML/CSS/JS frontend. |

@@ -43,7 +43,7 @@ def main():
     query_parser.add_argument("--build", action="store_true",
                               help="Rebuild the per-database queries from the saved concept blocks "
                                    "(and the year range in the scope notes) without calling the LLM")
-    query_parser.add_argument("--output", default=None, help="Path to the strategy JSON (default: search_strategy.json)")
+    query_parser.add_argument("--output", default=None, help="Path to a strategy JSON file (default: the app's database)")
 
     # Database harvesting
     harvest_parser = subparsers.add_parser("harvest", help="Run a query against a database API and save BibTeX")
@@ -62,9 +62,9 @@ def main():
     crit_parser.add_argument("--topic", default="", help="Research question / topic (omit to reuse the saved strategy's)")
     crit_parser.add_argument("--feedback", default="", help="Feedback to refine the current criteria")
     crit_parser.add_argument("--count", type=int, default=None, help="Number of criteria to propose")
-    crit_parser.add_argument("--fresh", action="store_true", help="Ignore the current criteria.json when generating")
+    crit_parser.add_argument("--fresh", action="store_true", help="Ignore the current criteria when generating")
     crit_parser.add_argument("--show", action="store_true", help="Only print the current criteria")
-    crit_parser.add_argument("--output", default=None, help="Where to write the criteria (default: criteria.json)")
+    crit_parser.add_argument("--output", default=None, help="Path to a criteria JSON file (default: the app's database)")
     crit_parser.add_argument("--yes", action="store_true", help="Overwrite without confirmation")
 
     # Chat over the screened corpus
@@ -216,11 +216,11 @@ def main():
         generate_report(args.input, args.output)
 
     elif args.command == "query":
-        from src.config import load_search_strategy, save_search_strategy, SEARCH_STRATEGY_PATH
+        from src.config import load_search_strategy, save_search_strategy
         from src.search_strategy import (generate_strategy, format_strategy, normalize_strategy,
                                          build_queries, parse_year_range, format_year_range)
         from src.llm import LLMError
-        path = args.output or SEARCH_STRATEGY_PATH
+        path = args.output
         current = load_search_strategy(path)
         if args.show:
             if not current:
@@ -241,7 +241,7 @@ def main():
             years = format_year_range(parse_year_range(strategy["scope_notes"]))
             print(format_strategy(strategy))
             print(f"\nRebuilt {len(strategy['queries'])} queries from {len(strategy['concepts'])} concepts "
-                  f"(no LLM call){' with year range ' + years if years else ''}. Saved to {path}.")
+                  f"(no LLM call){' with year range ' + years if years else ''}. Saved to {path or 'the database'}.")
             return
         topic = args.topic or current.get("research_question", "")
         if not topic:
@@ -255,7 +255,7 @@ def main():
             sys.exit(1)
         save_search_strategy(strategy, path)
         print(format_strategy(strategy))
-        print(f"\nSaved to {path}. Edit it by hand or via the web UI, then run 'harvest'.")
+        print(f"\nSaved to {path or 'the database'}. Edit it by hand or via the web UI, then run 'harvest'.")
 
     elif args.command == "harvest":
         from src.harvest import harvest_to_file, list_sources, HarvestError, PROVIDERS
@@ -297,10 +297,10 @@ def main():
         print(f"Next: python3 main.py ingest {summary['file']} --output data/deduplicated.json")
 
     elif args.command == "criteria":
-        from src.config import load_criteria, save_criteria, load_search_strategy, CRITERIA_PATH
+        from src.config import load_criteria, save_criteria, load_search_strategy
         from src.criteria_assist import generate_criteria, format_criteria
         from src.llm import LLMError
-        path = args.output or CRITERIA_PATH
+        path = args.output
         current = load_criteria(path)
         if args.show:
             print(format_criteria(current) if current else f"No criteria found at {path}.")
@@ -323,7 +323,7 @@ def main():
                 print("Not saved. Re-run with --yes to skip this prompt.")
                 return
         save_criteria(proposed, path)
-        print(f"Saved to {path}. Screening prompts, CSV columns and the web UI pick this up automatically.")
+        print(f"Saved to {path or 'the database'}. Screening prompts, CSV columns and the web UI pick this up automatically.")
 
     elif args.command == "chat":
         if not os.path.exists(args.input):

@@ -15,7 +15,7 @@ config = load_config()
 
 
 def reload_config():
-    """Re-read .env and criteria.json into the module-level ``config`` dict
+    """Re-read .env and the stored criteria into the module-level ``config`` dict
     (mutated in place so anything holding a reference sees the update) and
     rebuild the LLM client for the (possibly changed) provider / key.
     Called by the web UI after the user edits criteria or settings."""

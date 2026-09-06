@@ -225,3 +225,6 @@ test*.bib
 # Claude Code
 CLAUDE.md
 
+# Project documents now live in data/prisma.db; leftovers from older installs are ignored
+/criteria.json
+/search_strategy.json
