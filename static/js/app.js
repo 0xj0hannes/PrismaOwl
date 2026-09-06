@@ -208,6 +208,42 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally { btns.forEach(b => b.disabled = false); }
     }
     $('btn-strategy-generate').addEventListener('click', () => runStrategyAI(false));
+
+    // Deterministic rebuild: concepts -> queries, no LLM. Replaces the query
+    // boxes (unsaved until Save).
+    $('btn-strategy-build').addEventListener('click', async () => {
+        const status = $('strategy-build-status');
+        const btn = $('btn-strategy-build');
+        btn.disabled = true;
+        setStatus(status, 'Building…');
+        try {
+            const current = collectStrategy();
+            const data = await postJSON('/api/search-strategy/build',
+                { concepts: current.concepts, scope_notes: current.scope_notes });
+            const rows = {};
+            queriesContainer.querySelectorAll('.query-row').forEach(r => { rows[r.dataset.key] = r; });
+            Object.entries(data.queries).forEach(([key, q]) => {
+                if (rows[key]) rows[key].querySelector('.q-text').value = q;
+                else renderQueryRow(key, q);
+            });
+            let msg = `Rebuilt ${Object.keys(data.queries).length} queries from ${data.concept_count} concept(s), no LLM call.`;
+            if (data.year_range_label) {
+                const sup = data.year_filter_support || {};
+                const inQuery = Object.keys(sup).filter(k => sup[k] === 'query').map(k => databases[k] || k);
+                const viaApi = Object.keys(sup).filter(k => sup[k] === 'api').map(k => databases[k] || k);
+                const manual = Object.keys(sup).filter(k => sup[k] === 'manual').map(k => databases[k] || k);
+                msg += ` Years ${data.year_range_label} from the scope notes: written into the query for ${inQuery.join(', ')};`
+                    + ` applied as an API filter when harvesting ${viaApi.join(', ')};`
+                    + ` ${manual.join(', ')}: set the date filter on the website.`;
+            } else {
+                msg += ' No year range found in the scope notes (write e.g. "2010 onwards" or "2015-2024" to add a date filter).';
+            }
+            setStatus(status, msg, 'success');
+            $('strategy-save-status').textContent = 'Unsaved changes';
+        } catch (e) {
+            setStatus(status, 'Error: ' + e.message, 'error');
+        } finally { btn.disabled = false; }
+    });
     $('btn-strategy-refine').addEventListener('click', () => runStrategyAI(true));
 
     $('btn-strategy-save').addEventListener('click', async () => {
@@ -227,7 +263,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!query.trim()) { alert('Query is empty.'); return; }
         btn.disabled = true;
         try {
-            await postJSON('/api/harvest', { source, query, max_results: parseInt($('harvest-max').value || '500', 10) });
+            await postJSON('/api/harvest', { source, query, max_results: parseInt($('harvest-max').value || '500', 10),
+                scope_notes: $('strategy-scope').value });
             pollHarvestJobs();
             $('harvest-jobs').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         } catch (e) { alert('Harvest failed to start: ' + e.message); }
@@ -255,7 +292,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     right = `<span class="tag warn" title="${esc(j.error)}">failed: ${esc((j.error || '').slice(0, 120))}</span>`;
                 }
-                div.innerHTML = `<div><strong>${esc(label)}</strong> <span class="meta">${esc(j.started.replace('T', ' '))}</span><br>
+                const yrs = j.years_label ? ` <span class="tag">years ${esc(j.years_label)}</span>` : '';
+                div.innerHTML = `<div><strong>${esc(label)}</strong>${yrs} <span class="meta">${esc(j.started.replace('T', ' '))}</span><br>
                                  <span class="meta mono">${esc(j.query.slice(0, 160))}${j.query.length > 160 ? '…' : ''}</span></div>${right}`;
                 box.appendChild(div);
             });
@@ -678,7 +716,8 @@ document.addEventListener('DOMContentLoaded', () => {
 <p>This tab turns your research question into <strong>concept blocks</strong> (groups of synonyms combined with OR) and one ready-to-paste <strong>Boolean query per database</strong>, each in that database's own syntax. The LLM drafts it; you edit and save it to <code>search_strategy.json</code>.</p>
 <p>A systematic review must report the <em>full</em> search strategy for every database so that others can repeat the search. Keep the saved file, and note the date you ran each query.</p>
 <ul>
-<li>Use <em>Feedback for refinement</em> to iterate (add synonyms, restrict dates, drop a concept) instead of rewriting from scratch.</li>
+<li>Edit the concept blocks yourself and press <em>Rebuild from concepts</em> to regenerate every database query without an LLM call; use <em>Refine current with AI</em> when you want the model to propose new synonyms.</li>
+<li>Write date limits in the <em>Scope notes</em> ("2010 onwards", "2015-2024"): they are turned into a publication-year filter in the queries and in the API harvests, and they are exactly what item 7 asks you to report as limits.</li>
 <li>Peer review of the search by a librarian or information specialist is recommended before you run it for real.</li>
 </ul>`,
             items: '<strong>PRISMA 2020</strong> item 6 (information sources, with the date each was last searched) and item 7 (full search strategies for all databases, including any filters and limits). See also the PRISMA-S extension for reporting searches.',

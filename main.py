@@ -34,6 +34,9 @@ def main():
     query_parser.add_argument("--topic", default="", help="Research question / topic (omit to reuse the saved one)")
     query_parser.add_argument("--feedback", default="", help="Feedback to refine the saved strategy")
     query_parser.add_argument("--show", action="store_true", help="Only print the saved strategy")
+    query_parser.add_argument("--build", action="store_true",
+                              help="Rebuild the per-database queries from the saved concept blocks "
+                                   "(and the year range in the scope notes) without calling the LLM")
     query_parser.add_argument("--output", default=None, help="Path to the strategy JSON (default: search_strategy.json)")
 
     # Database harvesting
@@ -43,6 +46,10 @@ def main():
     harvest_parser.add_argument("--max", type=int, default=500, help="Maximum records to fetch (default 500)")
     harvest_parser.add_argument("--output", default=None, help="Output .bib path (default: data/harvest/<source>_<timestamp>.bib)")
     harvest_parser.add_argument("--list-sources", action="store_true", help="List sources and their availability")
+    harvest_parser.add_argument("--year-from", type=int, default=None,
+                                help="Earliest publication year (default: parsed from the saved scope notes)")
+    harvest_parser.add_argument("--year-to", type=int, default=None,
+                                help="Latest publication year (default: parsed from the saved scope notes)")
 
     # Inclusion-criteria assistant (LLM)
     crit_parser = subparsers.add_parser("criteria", help="Draft/refine inclusion criteria with the LLM")
@@ -204,7 +211,8 @@ def main():
 
     elif args.command == "query":
         from src.config import load_search_strategy, save_search_strategy, SEARCH_STRATEGY_PATH
-        from src.search_strategy import generate_strategy, format_strategy
+        from src.search_strategy import (generate_strategy, format_strategy, normalize_strategy,
+                                         build_queries, parse_year_range, format_year_range)
         from src.llm import LLMError
         path = args.output or SEARCH_STRATEGY_PATH
         current = load_search_strategy(path)
@@ -213,6 +221,21 @@ def main():
                 print(f"No strategy saved at {path}. Run: python3 main.py query --topic \"...\"")
                 sys.exit(1)
             print(format_strategy(current))
+            return
+        if args.build:
+            if not current:
+                print(f"No strategy saved at {path}. Run 'query --topic' first or create the file by hand.")
+                sys.exit(1)
+            strategy = normalize_strategy(current)
+            if not any(c["terms"] for c in strategy["concepts"]):
+                print("Error: the saved strategy has no concept terms to build queries from.")
+                sys.exit(1)
+            strategy["queries"] = build_queries(strategy["concepts"], strategy["scope_notes"])
+            save_search_strategy(strategy, path)
+            years = format_year_range(parse_year_range(strategy["scope_notes"]))
+            print(format_strategy(strategy))
+            print(f"\nRebuilt {len(strategy['queries'])} queries from {len(strategy['concepts'])} concepts "
+                  f"(no LLM call){' with year range ' + years if years else ''}. Saved to {path}.")
             return
         topic = args.topic or current.get("research_question", "")
         if not topic:
@@ -239,20 +262,28 @@ def main():
         if not args.source:
             print("Error: --source is required (or use --list-sources).")
             sys.exit(1)
+        from src.config import load_search_strategy
+        from src.search_strategy import parse_year_range, format_year_range
+        saved = load_search_strategy()
         query = args.query
         if not query:
-            from src.config import load_search_strategy
-            query = (load_search_strategy().get("queries") or {}).get(args.source, "")
+            query = (saved.get("queries") or {}).get(args.source, "")
             if not query:
                 print(f"Error: no saved query for '{args.source}'. Pass --query or run 'query' first.")
                 sys.exit(1)
             print(f"Using saved query for {args.source}:\n  {query}")
+        years = (args.year_from, args.year_to)
+        if years == (None, None):
+            years = parse_year_range(saved.get("scope_notes", ""))
+        if years != (None, None):
+            print(f"Publication years: {format_year_range(years)}")
 
         def progress(n, total):
             print(f"  fetched {n}" + (f" / {total}" if total is not None else "") + "...")
 
         try:
-            summary = harvest_to_file(args.source, query, output=args.output, max_results=args.max, progress=progress)
+            summary = harvest_to_file(args.source, query, output=args.output, max_results=args.max,
+                                      progress=progress, years=years)
         except HarvestError as e:
             print(f"Error: {e}")
             sys.exit(1)

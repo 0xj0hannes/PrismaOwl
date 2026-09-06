@@ -137,7 +137,7 @@ python -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
 Then navigate to `http://127.0.0.1:8000` in your browser.
 
-- **Search Strategy**: Enter your research question, click *Generate with AI*, and get concept blocks plus one query per database. Edit anything, save, then press *Run harvest* on any database with an open API to fetch results as `.bib` (download it, or *Ingest into corpus* directly). ACM DL and Web of Science show the query to paste into their advanced search.
+- **Search Strategy**: Enter your research question, click *Generate with AI*, and get concept blocks plus one query per database. Edit the concept blocks and press *Rebuild from concepts* to regenerate every database query deterministically (AND between concepts, OR inside, each database's own syntax) without another LLM call; *Refine current with AI* is for when you want new synonyms. A year range in the scope notes ("2010 onwards", "2015-2024") is written into the Scopus, Web of Science and arXiv queries and applied as an API filter when harvesting OpenAlex, Semantic Scholar, Crossref and IEEE. Save, then press *Run harvest* on any database with an open API to fetch results as `.bib` (download it, or *Ingest into corpus* directly). ACM DL and Web of Science show the query to paste into their advanced search.
 - **Ingestion**: Drag-and-drop multiple `.bib` files (e.g. exports from Scopus/WoS/ACM). The backend normalizes and globally deduplicates the contents into the master SQL database.
 - **Criteria**: Draft or refine inclusion criteria with the LLM, edit them in place, save to `criteria.json`. A *Reset screening results* button is there for when the criteria change mid-project.
 - **Screening**: Start the background AI task. Each result records which upstream model the router actually used.
@@ -157,11 +157,13 @@ The system also retains terminal commands for headless pipeline scripting:
 # Ask the LLM for concept blocks + one query per database (saved to search_strategy.json)
 python3 main.py query --topic "Effectiveness of mindfulness-based interventions on burnout in healthcare workers"
 python3 main.py query --feedback "add terms for nurses and physicians; restrict to 2010 onwards"   # refine
+python3 main.py query --build      # rebuild the queries from the saved concepts, no LLM call
 python3 main.py query --show
 
 # Run the saved query for a database (or pass --query) and save BibTeX
 python3 main.py harvest --list-sources
-python3 main.py harvest --source openalex --max 1000
+python3 main.py harvest --source openalex --max 1000                 # year range taken from the scope notes
+python3 main.py harvest --source openalex --year-from 2015 --year-to 2024
 python3 main.py harvest --source arxiv --query 'all:"large language model" AND abs:"code review"' --output bib_files/arxiv.bib
 
 # Draft inclusion criteria from the research question

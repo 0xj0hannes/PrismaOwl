@@ -17,7 +17,8 @@ from src.config import (load_config, save_criteria, load_search_strategy, save_s
 from src import screening as screening_module
 from src import llm as llm_module
 from src.llm import LLMError, ScreeningModelError, LLMClient, model_for, provider_settings, TASKS
-from src.search_strategy import generate_strategy, normalize_strategy, DATABASES
+from src.search_strategy import (generate_strategy, normalize_strategy, build_queries,
+                                 parse_year_range, format_year_range, YEAR_FILTER_SUPPORT, DATABASES)
 from src.harvest import harvest_to_file, list_sources, HarvestError, HARVEST_DIR
 from src.criteria_assist import generate_criteria, validate_criteria
 from src.chat import ask as chat_ask, select_records, SCOPES
@@ -222,7 +223,24 @@ async def settings_test(request: Request):
 async def get_search_strategy():
     strategy = load_search_strategy()
     return {"strategy": normalize_strategy(strategy) if strategy else None,
-            "databases": {k: v["label"] for k, v in DATABASES.items()}}
+            "databases": {k: v["label"] for k, v in DATABASES.items()},
+            "year_filter_support": YEAR_FILTER_SUPPORT}
+
+
+@app.post("/api/search-strategy/build")
+async def build_search_queries(request: Request):
+    """Rebuild the per-database queries from the concept blocks without an LLM
+    call. Nothing is saved; the UI shows the result for review and Save."""
+    data = await request.json()
+    concepts = normalize_strategy({"concepts": data.get("concepts") or []})["concepts"]
+    if not any(c["terms"] for c in concepts):
+        return JSONResponse({"error": "Add at least one concept with terms first."}, status_code=400)
+    scope_notes = str(data.get("scope_notes") or "")
+    years = parse_year_range(scope_notes)
+    return {"queries": build_queries(concepts, scope_notes),
+            "year_range": list(years), "year_range_label": format_year_range(years),
+            "year_filter_support": YEAR_FILTER_SUPPORT,
+            "concept_count": sum(1 for c in concepts if c["terms"])}
 
 
 @app.put("/api/search-strategy")
@@ -260,8 +278,19 @@ async def start_harvest(request: Request):
     max_results = int(data.get("max_results") or 500)
     if not query:
         return JSONResponse({"error": "Query is empty."}, status_code=400)
+    # Publication-year range: explicit year_from/year_to, else parsed from the
+    # (unsaved) scope notes the UI sends along, else none.
+    if data.get("year_from") not in (None, "") or data.get("year_to") not in (None, ""):
+        years = (data.get("year_from") or None, data.get("year_to") or None)
+    else:
+        years = parse_year_range(str(data.get("scope_notes") or ""))
+    try:
+        years = tuple(int(y) if y not in (None, "") else None for y in years)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "year_from / year_to must be whole years."}, status_code=400)
     job_id = uuid.uuid4().hex[:12]
     job = {"id": job_id, "source": source, "query": query, "max_results": max_results,
+           "years": list(years), "years_label": format_year_range(years),
            "status": "running", "fetched": 0, "total": None, "error": None, "result": None,
            "started": datetime.now().isoformat(timespec="seconds")}
     with harvest_lock:
@@ -272,7 +301,8 @@ async def start_harvest(request: Request):
 
     def run():
         try:
-            summary = harvest_to_file(source, query, max_results=max_results, progress=progress)
+            summary = harvest_to_file(source, query, max_results=max_results, progress=progress,
+                                      years=years)
             summary["file"] = os.path.basename(summary["file"])
             job["result"] = summary
             job["fetched"] = summary["count"]

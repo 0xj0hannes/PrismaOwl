@@ -25,7 +25,9 @@ are meant to be pasted into the database's advanced-search box and the result
 exported as BibTeX for ingestion.
 """
 import json
-from typing import Any, Dict, List, Optional
+import re
+from datetime import date
+from typing import Any, Dict, List, Optional, Tuple
 
 from .llm import generate_json
 
@@ -73,6 +75,199 @@ DATABASES: Dict[str, Dict[str, str]] = {
                   "distinctive keywords separated by spaces.",
     },
 }
+
+# --------------------------------------------------------------------------
+# Deterministic query builder (no LLM): concepts -> one query per database
+# --------------------------------------------------------------------------
+#
+# Concepts are combined with AND, the terms inside a concept with OR. Each
+# database gets the same semantic content in its own syntax, so editing a
+# concept block and pressing "Rebuild" gives reproducible queries instantly.
+# A year range parsed from the scope notes is embedded where the query
+# language supports it (Scopus, Web of Science, arXiv) and, for the API
+# harvesters, passed as a request parameter (see src/harvest.py).
+
+_YEAR = r"((?:19|20)\d{2})"
+
+# How each database applies a year range from the scope notes.
+YEAR_FILTER_SUPPORT: Dict[str, str] = {
+    "scopus": "query",            # PUBYEAR clause in the query string
+    "web_of_science": "query",    # PY=(a-b) clause in the query string
+    "arxiv": "query",             # submittedDate:[...] clause in the query string
+    "openalex": "api",            # filter=from_publication_date / to_publication_date
+    "semantic_scholar": "api",    # year=a-b
+    "crossref": "api",            # filter=from-pub-date / until-pub-date
+    "ieee": "api",                # start_year / end_year
+    "acm": "manual",              # no date syntax: use the website's filters
+}
+
+
+def parse_year_range(scope_notes: str) -> Tuple[Optional[int], Optional[int]]:
+    """Extract a publication-year range from free-text scope notes.
+
+    Understands ``2010-2024`` / ``2010 to 2024`` / ``between 2010 and 2024``,
+    ``2010 onwards`` / ``since 2010`` / ``from 2010``, ``after 2010`` (= 2011
+    onwards), ``until 2020`` / ``up to 2020``, ``before 2020`` (= up to 2019)
+    and ``last 10 years``. Returns ``(start, end)`` with ``None`` for an open
+    side, or ``(None, None)`` when nothing is found.
+    """
+    text = " ".join((scope_notes or "").lower().split())
+    if not text:
+        return (None, None)
+    m = re.search(rf"between\s+{_YEAR}\s+and\s+{_YEAR}", text) \
+        or re.search(rf"{_YEAR}\s*(?:-|\u2013|\u2014|to|through|until|till)\s*{_YEAR}", text)
+    if m:
+        a, b = int(m.group(1)), int(m.group(2))
+        return (min(a, b), max(a, b))
+    m = re.search(rf"{_YEAR}\s*(?:onwards?|and later|or later|and after|\+)", text) \
+        or re.search(rf"(?:since|from|starting(?: in| from)?)\s+{_YEAR}", text)
+    if m:
+        return (int(m.group(1)), None)
+    m = re.search(rf"after\s+{_YEAR}", text)
+    if m:
+        return (int(m.group(1)) + 1, None)
+    m = re.search(rf"(?:until|up to|through|till)\s+{_YEAR}", text)
+    if m:
+        return (None, int(m.group(1)))
+    m = re.search(rf"(?:before|prior to)\s+{_YEAR}", text)
+    if m:
+        return (None, int(m.group(1)) - 1)
+    m = re.search(r"(?:last|past)\s+(\d{1,2})\s+years?", text)
+    if m:
+        return (date.today().year - int(m.group(1)), None)
+    return (None, None)
+
+
+def format_year_range(years: Tuple[Optional[int], Optional[int]]) -> str:
+    a, b = years
+    if a is None and b is None:
+        return ""
+    if a is not None and b is not None:
+        return f"{a}\u2013{b}"
+    return f"{a} onwards" if a is not None else f"up to {b}"
+
+
+def _clean_term(term: str, wildcard: bool = True) -> str:
+    t = " ".join(str(term).split()).strip().strip('"').strip("'")
+    if not wildcard:
+        t = t.rstrip("*")
+    return t
+
+
+def _fmt(term: str, wildcard: bool = True) -> str:
+    t = _clean_term(term, wildcard)
+    if not t:
+        return ""
+    return f'"{t}"' if " " in t else t
+
+
+def _term_lists(concepts: List[Dict[str, Any]]) -> List[List[str]]:
+    out = []
+    for c in concepts or []:
+        terms = c.get("terms", []) if isinstance(c, dict) else []
+        if isinstance(terms, str):
+            terms = [t for t in terms.split(";")]
+        cleaned = [_clean_term(t) for t in terms]
+        cleaned = [t for t in cleaned if t]
+        if cleaned:
+            out.append(cleaned)
+    return out
+
+
+def _no_wildcard_terms(terms: List[str]) -> List[str]:
+    """Terms for a database without truncation. A stem like ``cybercrim*`` is
+    dropped when a sibling single-word term already starts with that stem
+    (``cybercriminal`` covers it); a phrase sibling ("mindfulness-based stress
+    reduction") does not count, because it would not match the plain word.
+    Otherwise the bare stem is kept and the database's own stemming / partial
+    matching has to do the work."""
+    out = []
+    for t in terms:
+        if t.endswith("*"):
+            stem = t.rstrip("*").lower()
+            if any(o is not t and not o.endswith("*") and " " not in o and o.lower().startswith(stem)
+                   for o in terms):
+                continue
+            t = t.rstrip("*")
+        if t and t not in out:
+            out.append(t)
+    return out
+
+
+def _or_group(terms: List[str], wildcard: bool = True, sep: str = " OR ") -> str:
+    if not wildcard:
+        terms = _no_wildcard_terms(terms)
+    parts = [x for x in (_fmt(t, wildcard) for t in terms) if x]
+    return "(" + sep.join(parts) + ")"
+
+
+def build_queries(concepts: List[Dict[str, Any]], scope_notes: str = "") -> Dict[str, str]:
+    """Compose one query per database from the concept blocks (no LLM)."""
+    groups = _term_lists(concepts)
+    if not groups:
+        return {key: "" for key in DATABASES}
+    start, end = parse_year_range(scope_notes)
+    q: Dict[str, str] = {}
+
+    # Scopus: TITLE-ABS-KEY(...) AND PUBYEAR > a-1 AND PUBYEAR < b+1
+    core = " AND ".join(_or_group(g) for g in groups)
+    scopus = f"TITLE-ABS-KEY({core})"
+    if start is not None:
+        scopus += f" AND PUBYEAR > {start - 1}"
+    if end is not None:
+        scopus += f" AND PUBYEAR < {end + 1}"
+    q["scopus"] = scopus
+
+    # Web of Science: TS=(...) AND PY=(a-b)
+    wos = f"TS=({core})"
+    if start is not None or end is not None:
+        wos += f" AND PY=({start or 1900}-{end or date.today().year})"
+    q["web_of_science"] = wos
+
+    # IEEE Xplore command search: every term against Abstract and Document Title.
+    ieee_groups = []
+    for g in groups:
+        parts = []
+        for t in g:
+            ft = _fmt(t)
+            parts.append(f'"Abstract":{ft} OR "Document Title":{ft}')
+        ieee_groups.append("(" + " OR ".join(parts) + ")")
+    q["ieee"] = " AND ".join(ieee_groups)
+
+    # ACM DL: (Abstract:(...) OR Title:(...) OR Keyword:(...)) per concept.
+    acm_groups = []
+    for g in groups:
+        inner = " OR ".join(x for x in (_fmt(t) for t in g) if x)
+        acm_groups.append(f"(Abstract:({inner}) OR Title:({inner}) OR Keyword:({inner}))")
+    q["acm"] = " AND ".join(acm_groups)
+
+    # OpenAlex: plain boolean, no wildcards (years go to the API filter).
+    q["openalex"] = " AND ".join(_or_group(g, wildcard=False) for g in groups)
+
+    # Semantic Scholar bulk search: + for AND, | for OR, * suffix wildcard.
+    q["semantic_scholar"] = " + ".join(_or_group(g, sep=" | ") for g in groups)
+
+    # arXiv: all: prefix per term, no wildcards, submittedDate clause for years.
+    arxiv_groups = []
+    for g in groups:
+        parts = [f"all:{x}" for x in (_fmt(t, wildcard=False) for t in _no_wildcard_terms(g)) if x]
+        arxiv_groups.append("(" + " OR ".join(parts) + ")")
+    arxiv = " AND ".join(arxiv_groups)
+    if start is not None or end is not None:
+        arxiv += f" AND submittedDate:[{start or 1991}0101 TO {end or date.today().year}1231]"
+    q["arxiv"] = arxiv
+
+    # Crossref: no boolean operators, a compact keyword list (first terms per concept).
+    words = []
+    for g in groups:
+        for t in _no_wildcard_terms(g)[:3]:
+            words.append(_clean_term(t, wildcard=False).replace('"', ""))
+    q["crossref"] = " ".join(words)
+
+    for key in DATABASES:
+        q.setdefault(key, "")
+    return q
+
 
 STRATEGY_PROMPT = """
 You are an expert research librarian helping design a reproducible search strategy for a

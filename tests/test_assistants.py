@@ -136,3 +136,100 @@ def test_ask_passes_history_and_scope(monkeypatch):
     out = chat.ask([{"role": "user", "content": "hi"}], RECORDS, RESULTS, {}, scope="included_maybe")
     assert out == {"reply": "reply", "n_records": 3, "scope": "included_maybe"}
     assert "[c] C" in captured["system"]
+
+
+# ---------------------------------------------------------------------------
+# Deterministic query builder + year-range parsing
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("notes, expected", [
+    ("2010 onwards, English only", (2010, None)),
+    ("Published between 2015 and 2024", (2015, 2024)),
+    ("2012-2020, peer reviewed", (2012, 2020)),
+    ("from 2018 to 2021", (2018, 2021)),
+    ("since 2019", (2019, None)),
+    ("after 2015", (2016, None)),
+    ("until 2020", (None, 2020)),
+    ("before 2020", (None, 2019)),
+    ("journal articles, English", (None, None)),
+    ("", (None, None)),
+])
+def test_parse_year_range(notes, expected):
+    assert ss.parse_year_range(notes) == expected
+
+
+def test_parse_year_range_last_n_years():
+    from datetime import date
+    assert ss.parse_year_range("last 5 years") == (date.today().year - 5, None)
+
+
+def test_format_year_range():
+    assert ss.format_year_range((2010, 2024)) == "2010\u20132024"
+    assert ss.format_year_range((2010, None)) == "2010 onwards"
+    assert ss.format_year_range((None, 2020)) == "up to 2020"
+    assert ss.format_year_range((None, None)) == ""
+
+
+CONCEPTS = [
+    {"name": "Intervention", "terms": ["mindfulness*", "meditation", " mindfulness-based stress reduction "]},
+    {"name": "Outcome", "terms": ["burnout", "occupational stress"]},
+    {"name": "empty", "terms": []},
+]
+
+
+def test_build_queries_covers_every_database_with_and_or_structure():
+    from datetime import date
+    q = ss.build_queries(CONCEPTS, "2010 onwards")
+    assert set(q) == set(ss.DATABASES)
+    assert q["scopus"] == ('TITLE-ABS-KEY((mindfulness* OR meditation OR "mindfulness-based stress reduction") '
+                           'AND (burnout OR "occupational stress")) AND PUBYEAR > 2009')
+    assert q["web_of_science"].startswith("TS=((mindfulness* OR meditation OR")
+    assert q["web_of_science"].endswith(f" AND PY=(2010-{date.today().year})")
+    # No wildcards where the API does not support them; years go to the API filter instead.
+    assert q["openalex"] == '(mindfulness OR meditation OR "mindfulness-based stress reduction") AND (burnout OR "occupational stress")'
+    assert q["semantic_scholar"] == '(mindfulness* | meditation | "mindfulness-based stress reduction") + (burnout | "occupational stress")'
+    assert q["arxiv"].startswith('(all:mindfulness OR all:meditation OR all:"mindfulness-based stress reduction") AND (all:burnout')
+    assert "submittedDate:[20100101 TO " in q["arxiv"]
+    assert '"Abstract":mindfulness* OR "Document Title":mindfulness*' in q["ieee"]
+    assert q["acm"].startswith("(Abstract:(mindfulness* OR meditation OR")
+    assert "Keyword:(burnout OR" in q["acm"]
+    assert q["crossref"] == "mindfulness meditation mindfulness-based stress reduction burnout occupational stress"
+
+
+def test_build_queries_without_years_or_terms():
+    q = ss.build_queries(CONCEPTS, "English, journals")
+    assert "PUBYEAR" not in q["scopus"] and "PY=" not in q["web_of_science"] and "submittedDate" not in q["arxiv"]
+    assert ss.build_queries([], "2010 onwards") == {k: "" for k in ss.DATABASES}
+    assert ss.build_queries([{"name": "x", "terms": "a; b c"}], "")["openalex"] == '(a OR "b c")'
+
+
+def test_build_endpoint_returns_queries_and_year_info():
+    import asyncio
+    import app as web_app
+
+    class _Req:
+        async def json(self):
+            return {"concepts": CONCEPTS, "scope_notes": "between 2015 and 2024"}
+
+    data = asyncio.run(web_app.build_search_queries(_Req()))
+    assert data["year_range"] == [2015, 2024] and data["year_range_label"] == "2015\u20132024"
+    assert data["concept_count"] == 2
+    assert data["queries"]["scopus"].endswith("AND PUBYEAR > 2014 AND PUBYEAR < 2025")
+    assert data["year_filter_support"]["acm"] == "manual"
+
+    class _Empty:
+        async def json(self):
+            return {"concepts": [], "scope_notes": ""}
+    assert asyncio.run(web_app.build_search_queries(_Empty())).status_code == 400
+
+
+def test_build_queries_handles_truncation_where_unsupported():
+    concepts = [{"name": "c", "terms": ["cybercrim*", "cybercriminal", "hacker*"]}]
+    q = ss.build_queries(concepts)
+    # OpenAlex has no truncation: the stem covered by "cybercriminal" is dropped,
+    # the uncovered stem "hacker*" is kept bare; Scopus keeps both wildcards.
+    assert q["openalex"] == "(cybercriminal OR hacker)"
+    assert q["arxiv"] == "(all:cybercriminal OR all:hacker)"
+    assert q["crossref"] == "cybercriminal hacker"
+    assert q["scopus"] == "TITLE-ABS-KEY((cybercrim* OR cybercriminal OR hacker*))"
+    assert q["semantic_scholar"] == "(cybercrim* | cybercriminal | hacker*)"

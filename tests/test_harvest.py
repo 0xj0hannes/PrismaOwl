@@ -176,7 +176,7 @@ def test_bibtex_output_round_trips_through_ingestion(tmp_path):
 
 def test_harvest_to_file_writes_bib(monkeypatch, tmp_path):
     monkeypatch.setattr(harvest, "harvest",
-                        lambda source, query, max_results=500, progress=None:
+                        lambda source, query, max_results=500, progress=None, years=None:
                         [harvest.Paper(title="X", abstract="y", year="2001", source_db=source)])
     out = tmp_path / "sub" / "x.bib"
     summary = harvest.harvest_to_file("openalex", "q", output=str(out), max_results=5)
@@ -191,3 +191,51 @@ def test_list_sources_reports_key_availability(monkeypatch):
     assert by_key["scopus"]["available"]
     assert not by_key["ieee"]["available"]
     assert by_key["acm"]["manual"] and by_key["web_of_science"]["manual"]
+
+
+# ---------------------------------------------------------------------------
+# Publication-year range applied per provider
+# ---------------------------------------------------------------------------
+
+def test_openalex_and_crossref_year_filters(monkeypatch):
+    calls = _mock_get(monkeypatch, [{"meta": {"count": 0, "next_cursor": None}, "results": []},
+                                    {"message": {"total-results": 0, "items": [], "next-cursor": None}}])
+    list(harvest._openalex("q", 10, {}, None, (2010, 2024)))
+    list(harvest._crossref("q", 10, {}, None, (2010, None)))
+    assert calls[0]["params"]["filter"] == "from_publication_date:2010-01-01,to_publication_date:2024-12-31"
+    assert calls[1]["params"]["filter"] == "from-pub-date:2010"
+
+
+def test_semantic_scholar_and_ieee_year_params(monkeypatch):
+    calls = _mock_get(monkeypatch, [{"total": 0, "data": []},
+                                    {"total_records": 0, "articles": []}])
+    list(harvest._semantic_scholar("q", 10, {}, None, (None, 2020)))
+    list(harvest._ieee("q", 10, {"IEEE_API_KEY": "k"}, None, (2012, 2018)))
+    assert calls[0]["params"]["year"] == "-2020"
+    assert calls[1]["params"]["start_year"] == 2012 and calls[1]["params"]["end_year"] == 2018
+
+
+def _arxiv_empty():
+    return _Resp(text='<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom" '
+                      'xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">'
+                      '<opensearch:totalResults>0</opensearch:totalResults></feed>')
+
+
+def test_scopus_and_arxiv_embed_years_in_query_unless_present(monkeypatch):
+    calls = _mock_get(monkeypatch, [
+        {"search-results": {"opensearch:totalResults": "0", "entry": []}},
+        {"search-results": {"opensearch:totalResults": "0", "entry": []}},
+        _arxiv_empty(),
+    ])
+    list(harvest._scopus("TITLE-ABS-KEY(x)", 10, {"SCOPUS_API_KEY": "k"}, None, (2010, 2024)))
+    list(harvest._scopus("TITLE-ABS-KEY(x) AND PUBYEAR > 1999", 10, {"SCOPUS_API_KEY": "k"}, None, (2010, 2024)))
+    list(harvest._arxiv("all:x", 10, {}, None, (2010, None)))
+    assert calls[0]["params"]["query"] == "TITLE-ABS-KEY(x) AND PUBYEAR > 2009 AND PUBYEAR < 2025"
+    assert calls[1]["params"]["query"] == "TITLE-ABS-KEY(x) AND PUBYEAR > 1999"     # user's own clause wins
+    assert calls[2]["params"]["search_query"].startswith("(all:x) AND submittedDate:[20100101 TO ")
+
+
+def test_normalize_years_orders_and_coerces():
+    assert harvest._normalize_years(("2024", "2010")) == (2010, 2024)
+    assert harvest._normalize_years((None, "")) == (None, None)
+    assert harvest._normalize_years(None) == (None, None)
