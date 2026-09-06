@@ -110,8 +110,6 @@
                     <div class="row-between">
                         <h3>3. Database queries <button class="help-btn" type="button" data-help="harvest" aria-label="Help: what is this and how does it relate to PRISMA?" title="What is this?">?</button></h3>
                         <div class="btn-row">
-                            <button class="btn-outline btn-sm" id="btn-strategy-build"
-                                title="Compose every database query from the concept blocks above, without the LLM">⟳ Rebuild from concepts</button>
                             <label class="field-label" for="harvest-max">Max records per run</label>
                             <input type="number" id="harvest-max" value="500" min="1" max="5000" class="input-sm">
                         </div>
@@ -120,7 +118,11 @@
                         from the concept blocks (AND between concepts, OR inside) without an LLM call; a year range in the
                         scope notes is applied too. <strong>Run</strong> harvests through the database's official API and
                         saves a .bib file below; databases without an open API show a <em>manual export</em> hint.</p>
-                    <p class="status-inline" id="strategy-build-status"></p>
+                    <div class="btn-row mt-10">
+                        <button class="btn-outline btn-sm" id="btn-strategy-build"
+                            title="Compose every database query from the concept blocks above, without the LLM">⟳ Rebuild from concepts</button>
+                        <span class="status-inline" id="strategy-build-status"></span>
+                    </div>
                     <div id="queries-container" class="mt-10"></div>
                     <div class="btn-row mt-20">
                         <button class="btn-success" id="btn-strategy-save">💾 Save strategy</button>
