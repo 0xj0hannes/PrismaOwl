@@ -617,14 +617,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // The "changing criteria after screening?" box only makes sense while
     // screening results exist; it disappears once they are reset.
+    const RESET_BOX_DISMISSED = 'prismaowl-reset-box-dismissed';
     async function refreshCriteriaResetBox() {
         try {
             const st = await api('/api/screen/status');
             const n = st.screened || 0;
-            $('criteria-reset-box').classList.toggle('hidden', n === 0);
+            let dismissed = false;
+            try { dismissed = sessionStorage.getItem(RESET_BOX_DISMISSED) === '1'; } catch (_) { /* private mode */ }
+            $('criteria-reset-box').classList.toggle('hidden', n === 0 || dismissed);
             $('criteria-reset-count').textContent = n === 1 ? '1 screening result' : `${n} screening results`;
         } catch (_) { /* ignore */ }
     }
+    $('btn-reset-box-close').addEventListener('click', () => {
+        $('criteria-reset-box').classList.add('hidden');
+        try { sessionStorage.setItem(RESET_BOX_DISMISSED, '1'); } catch (_) { /* ignore */ }
+    });
 
     $('btn-reset-results').addEventListener('click', async () => {
         if (!confirm('Delete ALL screening results (including human review decisions)? Records are kept.')) return;

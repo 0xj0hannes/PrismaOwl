@@ -43,8 +43,10 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
+    # Never let the browser cache the shell: it carries the ?v= asset versions,
+    # so a stale copy would keep loading old JavaScript after an update.
     with open("static/index.html", "r") as f:
-        return f.read()
+        return HTMLResponse(f.read(), headers={"Cache-Control": "no-store, max-age=0"})
 
 @app.get("/api/criteria")
 async def get_criteria():

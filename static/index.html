@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PrismaOwl</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=13">
+    <link rel="stylesheet" href="/static/css/style.css?v=14">
     <script>
         // Apply the saved theme before first paint to avoid a flash of the wrong theme.
         (function () {
@@ -250,6 +250,7 @@
                     <div id="criteria-editor" class="mt-10"></div>
                     <p class="status-inline mt-20" id="criteria-save-status" title="Every change is saved automatically to criteria.json, which the CLI reads too. Saving waits while a screening batch is running."></p>
                     <div class="warn-box mt-20 hidden" id="criteria-reset-box">
+                        <button class="box-close" id="btn-reset-box-close" type="button" aria-label="Dismiss this notice" title="Dismiss for this session">×</button>
                         <p><strong>Changing criteria after screening?</strong> <span id="criteria-reset-count"></span>
                             were judged against the criteria in force at the time. Reset them so the corpus is re-screened
                             on the next run.</p>
@@ -607,7 +608,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=21"></script>
+    <script src="/static/js/app.js?v=22"></script>
 </body>
 
 </html>
