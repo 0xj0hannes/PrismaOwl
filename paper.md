@@ -37,7 +37,7 @@ human reviewer firmly in control of every final decision.
 
 The tool ingests BibTeX exports from bibliographic databases, deduplicates them
 (by DOI and by a normalized title/year/first-author key), and sends each
-candidate record to the Google Gemini API with a JSON-mode prompt generated from
+candidate record to an LLM (through the OrcaRouter gateway, so any hosted model can be used, or directly to the Google Gemini API) with a JSON-mode prompt generated from
 a user-supplied set of inclusion criteria. For every criterion the model returns
 a numeric score, a list of supporting evidence phrases, and a free-text
 rationale; these are aggregated into an overall `Include`, `Exclude`, or `Maybe`
@@ -102,7 +102,7 @@ The software is written in Python (3.8+) and organized as a shared domain core
 (1) **ingestion**, which parses BibTeX into validated `pydantic` data models and
 normalizes titles; (2) **deduplication**, by exact DOI match and by a composite
 normalized `title | year | first-author` key; (3) **screening**, which builds a
-JSON-mode prompt per record from `criteria.json` and queries the Gemini API,
+JSON-mode prompt per record from `criteria.json` and queries the LLM through OrcaRouter or the Gemini API,
 distinguishing transient errors (rate limits, service unavailability), which are
 retried with exponential backoff, from persistent ones; (4) **review**, the
 human adjudication of `Maybe` records; and (5) **reporting**, which flattens

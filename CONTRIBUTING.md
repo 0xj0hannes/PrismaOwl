@@ -28,8 +28,8 @@ pip install -r requirements-dev.txt
 
 ## Running the tests
 
-The test suite runs offline — no Gemini API key is required (the LLM client is
-mocked).
+The test suite runs offline — no API key is required (the LLM client and all
+database HTTP calls are mocked).
 
 ```bash
 pytest

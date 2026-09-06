@@ -9,10 +9,20 @@ import tempfile
 from src.ingestion import load_bibtex
 from src.deduplication import deduplicate_records
 from src.models import Record, ScreeningResult, Dataset
-from src.screening import screen_record, is_model_unavailable, MODEL_UNAVAILABLE_HINT
+from src.screening import screen_record, is_fatal_error, fatal_error_hint, check_screening_setup
 from src.reporting import generate_report
-from src.db import init_db, save_record, save_screening_result, get_all_records, get_all_screening_results, get_unique_records
-from src.config import load_config
+from src.db import init_db, save_record, save_screening_result, get_all_records, get_all_screening_results, get_unique_records, clear_screening_results
+from src.config import load_config, save_criteria, load_search_strategy, save_search_strategy
+from src import screening as screening_module
+from src.llm import LLMError, ScreeningModelError, model_for, provider_settings, TASKS
+from src.search_strategy import generate_strategy, normalize_strategy, DATABASES
+from src.harvest import harvest_to_file, list_sources, HarvestError, HARVEST_DIR
+from src.criteria_assist import generate_criteria, validate_criteria
+from src.chat import ask as chat_ask, select_records, SCOPES
+import json
+import threading
+import uuid
+from datetime import datetime
 
 app = FastAPI(title="PrismaOwl")
 
@@ -33,6 +43,220 @@ async def read_root():
 async def get_criteria():
     config = load_config()
     return config.get("CRITERIA", {})
+
+
+@app.put("/api/criteria")
+async def put_criteria(request: Request):
+    """Replace criteria.json with the editor's content. The screening module's
+    cached config is refreshed so the next screened record uses the new
+    criteria; results screened under the old criteria are left untouched."""
+    if is_screening_running:
+        return JSONResponse({"error": "Stop screening before editing criteria."}, status_code=409)
+    try:
+        criteria = validate_criteria(await request.json())
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    save_criteria(criteria)
+    screening_module.reload_config()
+    return {"status": "success", "criteria": criteria}
+
+
+@app.post("/api/criteria/generate")
+async def generate_criteria_endpoint(request: Request):
+    """Draft or refine criteria with the LLM. Nothing is saved: the proposal is
+    returned for the user to edit and explicitly save via PUT /api/criteria."""
+    data = await request.json()
+    topic = (data.get("topic") or "").strip() or load_search_strategy().get("research_question", "")
+    current = data.get("current") or None
+    try:
+        proposed = await asyncio.to_thread(
+            generate_criteria, topic, current, data.get("feedback", ""), data.get("count"))
+    except (LLMError, ValueError) as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return {"criteria": proposed}
+
+
+@app.get("/api/llm")
+async def llm_info():
+    """Active LLM provider and which model each task will use (from .env),
+    for the UI footer."""
+    cfg = load_config()
+    ps = provider_settings(cfg)
+    return {
+        "provider": ps["label"],
+        "provider_id": ps["provider"],
+        "key_env": ps["key_env"],
+        "base_url": ps["base_url"],
+        "configured": bool(ps["api_key"]),
+        "models": {"default": model_for("", cfg), **{t: model_for(t, cfg) for t in TASKS}},
+    }
+
+
+# ---------------------------------------------------------------------------
+# Search strategy (LLM query builder) + database harvesting
+# ---------------------------------------------------------------------------
+
+@app.get("/api/search-strategy")
+async def get_search_strategy():
+    strategy = load_search_strategy()
+    return {"strategy": normalize_strategy(strategy) if strategy else None,
+            "databases": {k: v["label"] for k, v in DATABASES.items()}}
+
+
+@app.put("/api/search-strategy")
+async def put_search_strategy(request: Request):
+    strategy = normalize_strategy(await request.json())
+    save_search_strategy(strategy)
+    return {"status": "success", "strategy": strategy}
+
+
+@app.post("/api/search-strategy/generate")
+async def generate_search_strategy(request: Request):
+    data = await request.json()
+    try:
+        strategy = await asyncio.to_thread(
+            generate_strategy, data.get("topic", ""), data.get("current") or None, data.get("feedback", ""))
+    except (LLMError, ValueError) as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return {"strategy": strategy}
+
+
+harvest_jobs = {}
+harvest_lock = threading.Lock()
+
+
+@app.get("/api/harvest/sources")
+async def harvest_sources():
+    return {"sources": list_sources()}
+
+
+@app.post("/api/harvest")
+async def start_harvest(request: Request):
+    data = await request.json()
+    source = data.get("source", "")
+    query = (data.get("query") or "").strip()
+    max_results = int(data.get("max_results") or 500)
+    if not query:
+        return JSONResponse({"error": "Query is empty."}, status_code=400)
+    job_id = uuid.uuid4().hex[:12]
+    job = {"id": job_id, "source": source, "query": query, "max_results": max_results,
+           "status": "running", "fetched": 0, "total": None, "error": None, "result": None,
+           "started": datetime.now().isoformat(timespec="seconds")}
+    with harvest_lock:
+        harvest_jobs[job_id] = job
+
+    def progress(n, total):
+        job["fetched"], job["total"] = n, total
+
+    def run():
+        try:
+            summary = harvest_to_file(source, query, max_results=max_results, progress=progress)
+            summary["file"] = os.path.basename(summary["file"])
+            job["result"] = summary
+            job["fetched"] = summary["count"]
+            job["status"] = "done"
+        except Exception as e:  # noqa: BLE001 - report any failure to the UI
+            job["error"] = str(e)
+            job["status"] = "failed"
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"job": job}
+
+
+@app.get("/api/harvest/jobs")
+async def harvest_job_list():
+    with harvest_lock:
+        jobs = sorted(harvest_jobs.values(), key=lambda j: j["started"], reverse=True)
+    return {"jobs": jobs}
+
+
+def _harvest_path(name: str) -> str:
+    safe = os.path.basename(name)
+    if not safe.endswith(".bib"):
+        raise ValueError("Not a .bib file")
+    path = os.path.join(HARVEST_DIR, safe)
+    if not os.path.isfile(path):
+        raise FileNotFoundError(safe)
+    return path
+
+
+@app.get("/api/harvest/files")
+async def harvest_files():
+    os.makedirs(HARVEST_DIR, exist_ok=True)
+    files = []
+    for name in sorted(os.listdir(HARVEST_DIR), reverse=True):
+        if name.endswith(".bib"):
+            path = os.path.join(HARVEST_DIR, name)
+            files.append({"name": name, "size": os.path.getsize(path),
+                          "modified": datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec="seconds")})
+    return {"files": files}
+
+
+@app.get("/api/harvest/download/{name}")
+async def harvest_download(name: str):
+    try:
+        path = _harvest_path(name)
+    except (ValueError, FileNotFoundError):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return FileResponse(path, media_type="application/x-bibtex", filename=os.path.basename(path))
+
+
+@app.post("/api/harvest/ingest/{name}")
+async def harvest_ingest(name: str):
+    """Ingest a harvested .bib straight into the SQLite corpus (same
+    deduplication path as /api/ingest)."""
+    try:
+        path = _harvest_path(name)
+    except (ValueError, FileNotFoundError):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    new_records = load_bibtex(path)
+    if not new_records:
+        return JSONResponse({"error": "No records in file."}, status_code=400)
+    existing_records = [Record(**r) for r in get_all_records()]
+    deduped_all = deduplicate_records(existing_records + new_records)
+    for rec in deduped_all:
+        save_record(rec.model_dump())
+    return {"status": "success", "uploaded": len(new_records), "total_unique_db": len(deduped_all)}
+
+
+@app.delete("/api/harvest/files/{name}")
+async def harvest_delete(name: str):
+    try:
+        path = _harvest_path(name)
+    except (ValueError, FileNotFoundError):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    os.unlink(path)
+    return {"status": "deleted"}
+
+
+# ---------------------------------------------------------------------------
+# Chat over screened results
+# ---------------------------------------------------------------------------
+
+@app.get("/api/chat/scope")
+async def chat_scope_counts():
+    records = get_unique_records()
+    results = get_all_screening_results()
+    return {"scopes": {scope: len(select_records(records, results, scope)) for scope in SCOPES}}
+
+
+@app.post("/api/chat")
+async def chat_endpoint(request: Request):
+    data = await request.json()
+    messages = data.get("messages") or []
+    scope = data.get("scope", "included")
+    if scope not in SCOPES:
+        return JSONResponse({"error": f"Unknown scope '{scope}'"}, status_code=400)
+    if not messages or messages[-1].get("role") != "user":
+        return JSONResponse({"error": "Send at least one user message."}, status_code=400)
+    records = get_unique_records()
+    results = get_all_screening_results()
+    criteria = load_config().get("CRITERIA", {})
+    try:
+        out = await asyncio.to_thread(chat_ask, messages, records, results, criteria, scope)
+    except LLMError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return out
 
 from typing import List
 
@@ -83,7 +307,19 @@ is_screening_running = False
 async def screen_status():
     all_res = get_all_screening_results()
     total = len(get_unique_records())
-    return {"screened": len(all_res), "total": total, "is_running": is_screening_running}
+    # Pinned screening model + whether a batch may start with it (see
+    # check_screening_setup); the UI shows the model and the reason if not.
+    model_info = {"model": "", "model_ok": True, "model_error": ""}
+    try:
+        model_info["model"] = check_screening_setup(all_res)
+    except ScreeningModelError as e:
+        model_info.update(model_ok=False, model_error=str(e))
+        try:
+            model_info["model"] = model_for("screening")
+        except Exception:  # noqa: BLE001
+            pass
+    return {"screened": len(all_res), "total": total, "is_running": is_screening_running,
+            **model_info}
 
 @app.post("/api/screen/start")
 async def start_screening(background_tasks: BackgroundTasks):
@@ -92,12 +328,20 @@ async def start_screening(background_tasks: BackgroundTasks):
     
     if is_screening_running:
         return {"status": "already started"}
-        
-    is_screening_running = True
-    
+
     # Retrieve from DB
     records = get_unique_records()
     already_screened = get_all_screening_results()
+
+    # Reproducibility: refuse to start unless screening is pinned to one
+    # concrete model that matches the results already in the database.
+    try:
+        model = check_screening_setup(already_screened)
+    except ScreeningModelError as e:
+        return JSONResponse({"error": str(e)}, status_code=409)
+
+    is_screening_running = True
+    print(f"[Screening AI] Pinned screening model: {model}")
     
     def screen_task():
         global stop_screening_flag, is_screening_running
@@ -118,9 +362,9 @@ async def start_screening(background_tasks: BackgroundTasks):
                     scores = [f"{k}: {v.score}" for k, v in res.criteria.items()]
                     print(f"   -> Result: {res.decision} ({', '.join(scores)})")
                     save_screening_result(res.model_dump())
-                    if is_model_unavailable(res.notes):
-                        print(f"   [FATAL] Model unavailable. Stopping screening.")
-                        print(f"   {MODEL_UNAVAILABLE_HINT}")
+                    if is_fatal_error(res.notes):
+                        print(f"   [FATAL] Screening cannot continue. Stopping.")
+                        print(f"   {fatal_error_hint(res.notes)}")
                         break
                 except Exception as e:
                     print(f"   [!] Error on {record.id}: {e}")
@@ -135,6 +379,16 @@ async def stop_screening():
     global stop_screening_flag
     stop_screening_flag = True
     return {"status": "stopped"}
+
+
+@app.delete("/api/screen/results")
+async def reset_screening_results():
+    """Discard every screening result (e.g. after changing the criteria) so
+    the whole corpus is re-screened on the next run. Records are kept."""
+    if is_screening_running:
+        return JSONResponse({"error": "Stop screening first."}, status_code=409)
+    n = clear_screening_results()
+    return {"status": "success", "deleted": n}
 
 @app.get("/api/review")
 async def get_reviews():
