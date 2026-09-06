@@ -580,7 +580,12 @@ summary .help-btn { margin-left: 6px; }
 .summary-row::-webkit-details-marker { display: none; }
 .summary-row h3::before { content: "\25B8"; display: inline-block; margin-right: 8px; color: var(--text-secondary); transition: transform 0.2s ease; }
 details[open] > .summary-row h3::before { transform: rotate(90deg); }
-#ingest-dups-table td:nth-child(2), #ingest-dups-table td:nth-child(3) { white-space: nowrap; }
+#ingest-dups-table { table-layout: fixed; }
+#ingest-dups-table th:nth-child(1) { width: 34%; }
+#ingest-dups-table th:nth-child(2) { width: 18%; }
+#ingest-dups-table th:nth-child(3) { width: 18%; }
+#ingest-dups-table th:nth-child(4) { width: 30%; }
+#ingest-dups-table td { overflow-wrap: anywhere; }
 
 /* Search-engine style pager */
 .pager { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
