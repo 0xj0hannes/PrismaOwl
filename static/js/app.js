@@ -668,6 +668,112 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ------------------------------------------------------------------
+    // Help popups: "?" buttons (data-help="<topic>") explain a feature and
+    // which PRISMA 2020 checklist items it supports. Static, trusted content.
+    // ------------------------------------------------------------------
+    const HELP_TOPICS = {
+        strategy: {
+            title: 'Search Strategy',
+            body: `
+<p>This tab turns your research question into <strong>concept blocks</strong> (groups of synonyms combined with OR) and one ready-to-paste <strong>Boolean query per database</strong>, each in that database's own syntax. The LLM drafts it; you edit and save it to <code>search_strategy.json</code>.</p>
+<p>A systematic review must report the <em>full</em> search strategy for every database so that others can repeat the search. Keep the saved file, and note the date you ran each query.</p>
+<ul>
+<li>Use <em>Feedback for refinement</em> to iterate (add synonyms, restrict dates, drop a concept) instead of rewriting from scratch.</li>
+<li>Peer review of the search by a librarian or information specialist is recommended before you run it for real.</li>
+</ul>`,
+            items: '<strong>PRISMA 2020</strong> item 6 (information sources, with the date each was last searched) and item 7 (full search strategies for all databases, including any filters and limits). See also the PRISMA-S extension for reporting searches.',
+        },
+        rationale: {
+            title: 'Rationale & limitations',
+            body: `
+<p>Two free-text notes the LLM writes alongside the strategy. They are <strong>not used by the software</strong>; they exist for your write-up and your audit trail.</p>
+<ul>
+<li><strong>Rationale</strong>: why these concepts and terms were chosen. Check it to confirm the model understood the question, then reuse it when you justify the search in your methods section or protocol.</li>
+<li><strong>Limitations</strong>: known gaps of the search, for example synonyms not covered, databases without truncation, language or date restrictions. These belong in the limitations paragraph of your review.</li>
+</ul>
+<p>Both fields are editable and are saved with the strategy.</p>`,
+            items: '<strong>PRISMA 2020</strong> item 7 (search strategy, so readers can judge its comprehensiveness) and item 23c (limitations of the review processes used). Documenting the reasoning behind the search also supports PRISMA-S.',
+        },
+        harvest: {
+            title: 'Database queries & harvesting',
+            body: `
+<p>Each row is the query for one database. <strong>Run</strong> sends it to that database's official API (OpenAlex, Semantic Scholar, arXiv, Crossref need no key; Scopus and IEEE Xplore need a key) and saves the results as a <code>.bib</code> file you can download or ingest directly. Databases without an open API (ACM DL, Web of Science) show the query to paste into their own search form; export the results from there and drop the file into <em>Ingestion</em>.</p>
+<p>Write down, per database, the number of records retrieved and the date. Those numbers are the first box of the PRISMA flow diagram.</p>`,
+            items: '<strong>PRISMA 2020</strong> item 6 (information sources), item 7 (search strategy) and item 16a (number of records identified from each source, for the flow diagram).',
+        },
+        ingest: {
+            title: 'Data ingestion & deduplication',
+            body: `
+<p>Upload the BibTeX exports from your databases. Records are parsed, normalised and <strong>deduplicated</strong>: first by DOI, then by a title / year / first-author key, so the same paper found in several databases is screened once.</p>
+<p>The counts shown here give you two flow-diagram numbers: records identified (all uploads) and duplicates removed before screening.</p>`,
+            items: '<strong>PRISMA 2020</strong> item 16a (flow diagram: records identified, duplicate records removed before screening).',
+        },
+        criteria: {
+            title: 'Inclusion criteria',
+            body: `
+<p>The criteria are the only place where your research field enters the tool. Each criterion has a <strong>definition</strong>, <strong>signals</strong> the model should look for, and <strong>negative indicators</strong> that must not be mistaken for evidence. They drive the screening prompt, the review buttons, the CSV columns and the chat context.</p>
+<ul>
+<li>Define them <em>before</em> screening and record them in your protocol; changing them mid-project means re-screening (use <em>Reset screening results</em>).</li>
+<li>The LLM assistant can draft a set from the research question, but you own the final wording.</li>
+</ul>`,
+            items: '<strong>PRISMA 2020</strong> item 5 (eligibility criteria: inclusion and exclusion criteria for the review) and item 4 (protocol / registration, where the criteria should be fixed in advance).',
+        },
+        screening: {
+            title: 'AI screening',
+            body: `
+<p>Each unique record (title + abstract) is sent to the LLM with your criteria. For every criterion the model returns a score, quoted evidence and a rationale, and an overall <strong>Include / Exclude / Maybe</strong>. The prompt favours precision: no explicit evidence, no inclusion.</p>
+<p>For reproducibility the screening model is <strong>pinned to one concrete model</strong>; every result stores the model that judged it, and all prompts and raw responses are logged to <code>logs/screening.log</code>.</p>
+<p>When you report the review, state that an automation tool assisted title/abstract screening, name the model (see <em>model_version</em> in the CSV), and describe the human check that followed. The tool does not perform full-text eligibility assessment.</p>`,
+            items: '<strong>PRISMA 2020</strong> item 8 (selection process: how records were screened, how many reviewers, and any automation tools used) and item 16a (records screened / excluded).',
+        },
+        review: {
+            title: 'Human-in-the-loop review',
+            body: `
+<p>Records the model marked <strong>Maybe</strong> land here for a human decision. You see the abstract, the per-criterion scores, evidence and rationale, and decide Include or Exclude. Nothing is included in the final set without this step for uncertain cases.</p>
+<p>Consider having a second reviewer check a sample of the AI's confident Include / Exclude decisions as well, and record disagreements and how they were resolved.</p>`,
+            items: '<strong>PRISMA 2020</strong> item 8 (selection process, including whether reviewers worked independently) and item 16b (records excluded, with reasons, where applicable).',
+        },
+        report: {
+            title: 'PRISMA reporting',
+            body: `
+<p>The CSV contains one row per screened record with the decision, and for each criterion its score, evidence and rationale, plus the model version. The summary counts (identified, duplicates removed, screened, included, excluded, pending review) feed the <strong>PRISMA 2020 flow diagram</strong>.</p>
+<p>Remember that this tool covers identification and title/abstract screening only. Full-text retrieval and eligibility assessment, risk-of-bias appraisal and synthesis are separate steps you carry out and report yourself.</p>`,
+            items: '<strong>PRISMA 2020</strong> item 16a (study selection results and flow diagram) and item 27 (availability of data and materials: the CSV and <code>screening.log</code> can be archived as supplementary material).',
+        },
+        chat: {
+            title: 'Ask the corpus',
+            body: `
+<p>A chatbot that has read the included records (or, if you widen the scope, also the Maybe or all screened records) and answers questions about them, citing record IDs. Use it to spot themes, compare methods, or find which papers mention something.</p>
+<p>It is an assistant for exploration, not a PRISMA stage: verify every claim against the full texts before it goes into your synthesis, and do not rely on it for eligibility decisions.</p>`,
+            items: 'Supports the preparation of <strong>PRISMA 2020</strong> item 13 (synthesis methods) and item 20 (results of syntheses), but replaces neither.',
+        },
+    };
+
+    const helpModal = $('help-modal');
+    function openHelp(topic) {
+        const t = HELP_TOPICS[topic];
+        if (!t) return;
+        $('help-title').textContent = t.title;
+        $('help-body').innerHTML = t.body + `<div class="help-ref">${t.items}</div>`;
+        helpModal.classList.remove('hidden');
+        $('btn-help-ok').focus();
+    }
+    function closeHelp() { helpModal.classList.add('hidden'); }
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-help]');
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();      // keep <summary> from toggling
+        openHelp(btn.dataset.help);
+    });
+    $('btn-help-close').addEventListener('click', closeHelp);
+    $('btn-help-ok').addEventListener('click', closeHelp);
+    helpModal.addEventListener('click', (e) => { if (e.target === helpModal) closeHelp(); });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !helpModal.classList.contains('hidden')) closeHelp();
+    });
+
+    // ------------------------------------------------------------------
     // Settings dialog (LLM provider, models, theme) -> PUT /api/settings
     // ------------------------------------------------------------------
     const settingsModal = $('settings-modal');

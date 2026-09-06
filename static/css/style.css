@@ -534,3 +534,29 @@ input[type="password"] {
     background: rgba(59, 130, 246, 0.12); box-shadow: inset 0 0 0 1px var(--accent-blue);
 }
 .segment input:focus-visible + span { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+
+/* Help buttons + help popup */
+.help-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; margin-left: 8px; vertical-align: middle;
+    border-radius: 50%; border: 1px solid var(--border-strong); background: var(--surface-subtle);
+    color: var(--text-secondary); font: 700 0.75rem 'Inter', sans-serif; line-height: 1;
+    cursor: pointer; transition: all 0.2s ease;
+}
+.help-btn:hover, .help-btn:focus-visible { color: var(--accent-blue); border-color: var(--accent-blue); background: rgba(59, 130, 246, 0.12); outline: none; }
+h2 .help-btn { width: 24px; height: 24px; font-size: 0.8rem; }
+summary .help-btn { margin-left: 6px; }
+.modal-narrow { width: min(640px, 100%); }
+.help-body { font-size: 0.95rem; line-height: 1.6; padding-top: 16px; }
+.help-body p { margin-bottom: 12px; }
+.help-body ul { margin: 0 0 12px 20px; }
+.help-body li { margin-bottom: 6px; }
+.help-body code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; background: var(--surface-inset); padding: 1px 5px; border-radius: 4px; }
+.help-ref {
+    margin-top: 14px; padding: 10px 14px; border-radius: 10px;
+    border: 1px solid var(--border-glass); background: var(--surface-hover);
+    font-size: 0.85rem; color: var(--text-secondary);
+}
+.help-ref strong { color: var(--text-primary); }
+.modal-footer .status-inline a { color: var(--accent-blue); }
+.modal-footer .btn-primary, .modal-footer .btn-outline { white-space: nowrap; flex-shrink: 0; }
