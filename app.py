@@ -12,9 +12,11 @@ from src.models import Record, ScreeningResult, Dataset
 from src.screening import screen_record, is_fatal_error, fatal_error_hint, check_screening_setup
 from src.reporting import generate_report
 from src.db import init_db, save_record, save_screening_result, get_all_records, get_all_screening_results, get_unique_records, clear_screening_results
-from src.config import load_config, save_criteria, load_search_strategy, save_search_strategy
+from src.config import (load_config, save_criteria, load_search_strategy, save_search_strategy,
+                        update_env, PROVIDERS, EDITABLE_SETTINGS, SECRET_SETTINGS)
 from src import screening as screening_module
-from src.llm import LLMError, ScreeningModelError, model_for, provider_settings, TASKS
+from src import llm as llm_module
+from src.llm import LLMError, ScreeningModelError, LLMClient, model_for, provider_settings, TASKS
 from src.search_strategy import generate_strategy, normalize_strategy, DATABASES
 from src.harvest import harvest_to_file, list_sources, HarvestError, HARVEST_DIR
 from src.criteria_assist import generate_criteria, validate_criteria
@@ -90,6 +92,125 @@ async def llm_info():
         "configured": bool(ps["api_key"]),
         "models": {"default": model_for("", cfg), **{t: model_for(t, cfg) for t in TASKS}},
     }
+
+
+# ---------------------------------------------------------------------------
+# Settings (web editor for .env)
+# ---------------------------------------------------------------------------
+
+def _secret_state(value):
+    """Never send a secret to the browser: only whether it is set and a hint."""
+    value = value or ""
+    return {"set": bool(value), "hint": ("…" + value[-4:]) if len(value) >= 8 else ""}
+
+
+@app.get("/api/settings")
+async def get_settings():
+    cfg = load_config()
+    ps = provider_settings(cfg)
+    return {
+        "providers": {k: {"label": v["label"], "key_env": v["key_env"], "default_model": v["default_model"],
+                          "base_url": v["base_url"], "console": v["console"]} for k, v in PROVIDERS.items()},
+        "active_provider": ps["provider"],
+        "values": {
+            "LLM_PROVIDER": os.getenv("LLM_PROVIDER", "") or "",
+            "ORCA_BASE_URL": cfg.get("ORCA_BASE_URL") or "",
+            "GEMINI_BASE_URL": cfg.get("GEMINI_BASE_URL") or "",
+            # Raw MODEL_NAME (may be empty = provider default), not the resolved one.
+            "MODEL_NAME": os.getenv("MODEL_NAME", "") or "",
+            **{f"MODEL_{t.upper()}": cfg.get(f"MODEL_{t.upper()}") or "" for t in TASKS},
+            "MAX_RETRIES": cfg.get("MAX_RETRIES"),
+            "LLM_TIMEOUT": cfg.get("LLM_TIMEOUT"),
+            "OPENALEX_EMAIL": cfg.get("OPENALEX_EMAIL") or "",
+        },
+        "secrets": {k: _secret_state(os.getenv(k)) for k in SECRET_SETTINGS},
+        "resolved_models": {"default": model_for("", cfg), **{t: model_for(t, cfg) for t in TASKS}},
+    }
+
+
+@app.put("/api/settings")
+async def put_settings(request: Request):
+    """Write settings to .env. Non-secret fields are written as given; a secret
+    is kept when ``null``/absent, cleared when ``""`` and replaced otherwise."""
+    if is_screening_running:
+        return JSONResponse({"error": "Stop screening before changing settings."}, status_code=409)
+    data = await request.json()
+    if not isinstance(data, dict):
+        return JSONResponse({"error": "Expected a JSON object."}, status_code=400)
+
+    values = {}
+    errors = []
+    for key in EDITABLE_SETTINGS:
+        if key not in data or data[key] is None:
+            continue
+        raw = data[key]
+        val = str(raw).strip() if not isinstance(raw, str) else raw.strip()
+        if key == "LLM_PROVIDER" and val and val not in PROVIDERS:
+            errors.append(f"LLM_PROVIDER must be one of: {', '.join(PROVIDERS)} (or empty for auto-detect).")
+        elif key == "MAX_RETRIES" and val:
+            if not val.isdigit() or int(val) < 1:
+                errors.append("MAX_RETRIES must be a whole number of at least 1.")
+        elif key == "LLM_TIMEOUT" and val:
+            try:
+                if float(val) <= 0:
+                    raise ValueError
+            except ValueError:
+                errors.append("LLM_TIMEOUT must be a positive number of seconds.")
+        elif key.endswith("_BASE_URL") and val and not val.startswith(("http://", "https://")):
+            errors.append(f"{key} must start with http:// or https://.")
+        if "\n" in val or "\r" in val:
+            errors.append(f"{key} must be a single line.")
+        values[key] = val
+    if errors:
+        return JSONResponse({"error": " ".join(errors)}, status_code=400)
+    if not values:
+        return JSONResponse({"error": "Nothing to save."}, status_code=400)
+
+    update_env(values)
+    screening_module.reload_config()
+    llm_module.reset_client()
+    return {"status": "success", "written": sorted(values)}
+
+
+def _client_for(provider: str):
+    cfg = load_config()
+    if provider:
+        if provider not in PROVIDERS:
+            raise LLMError(f"Unknown provider '{provider}'.", status=400)
+        # Drop the values resolved for the active provider so the override
+        # really uses this provider's own key and base URL.
+        cfg = {**cfg, "LLM_PROVIDER": provider, "LLM_API_KEY": None, "LLM_BASE_URL": None}
+    ps = provider_settings(cfg)
+    if not ps["api_key"]:
+        raise LLMError(f"{ps['key_env']} is not set. Save the key first.", status=401)
+    return ps, LLMClient(ps["api_key"], ps["base_url"], timeout=min(cfg.get("LLM_TIMEOUT", 60.0), 60.0),
+                         provider=ps["provider"])
+
+
+@app.get("/api/settings/models")
+async def settings_models(provider: str = ""):
+    """Model ids the saved key of ``provider`` (default: the active one) can use."""
+    try:
+        ps, client = _client_for(provider)
+        models = await asyncio.to_thread(client.list_models)
+    except LLMError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    ids = sorted({str(m.get("id", "")) for m in models if isinstance(m, dict) and m.get("id")})
+    return {"provider": ps["provider"], "label": ps["label"], "models": ids}
+
+
+@app.post("/api/settings/test")
+async def settings_test(request: Request):
+    """Check that the saved key for a provider is accepted (lists its models)."""
+    data = await request.json() if int(request.headers.get("content-length") or 0) > 0 else {}
+    provider = (data or {}).get("provider") or ""
+    try:
+        ps, client = _client_for(provider)
+        models = await asyncio.to_thread(client.list_models)
+    except LLMError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return {"ok": True, "provider": ps["provider"], "label": ps["label"],
+            "base_url": ps["base_url"], "model_count": len(models)}
 
 
 # ---------------------------------------------------------------------------

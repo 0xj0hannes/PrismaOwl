@@ -137,6 +137,7 @@ Then navigate to `http://127.0.0.1:8000` in your browser.
 - **Review**: Adjudicate uncertain "Maybe" cases with rapid-action buttons.
 - **Reports**: Download the CSV PRISMA report.
 - **Chat**: Ask questions about the included records (themes, methods, which papers mention X…). Answers cite record IDs; switch the scope to include *Maybe* or all screened records.
+- **⚙️ Settings** (bottom of the sidebar): choose the LLM provider (OrcaRouter or Gemini), enter API keys, pick the model per task from the provider's live model list, set retries/timeout and harvester credentials, and switch between dark, light and system theme. Everything except the theme is written to `.env`, so the CLI sees the same configuration.
 
 ---
 

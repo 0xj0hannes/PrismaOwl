@@ -54,6 +54,60 @@ def resolve_provider(explicit: str = "", orca_key: str = "", gemini_key: str = "
     return DEFAULT_PROVIDER
 
 
+# Keys the web Settings dialog may read and write in .env. Anything else in
+# the file is left untouched.
+SECRET_SETTINGS = ("ORCA_API_KEY", "GEMINI_API_KEY", "SEMANTIC_SCHOLAR_API_KEY",
+                   "SCOPUS_API_KEY", "SCOPUS_INST_TOKEN", "IEEE_API_KEY")
+EDITABLE_SETTINGS = ("LLM_PROVIDER", "ORCA_BASE_URL", "GEMINI_BASE_URL",
+                     "MODEL_NAME", "MODEL_SCREENING", "MODEL_QUERY", "MODEL_CRITERIA", "MODEL_CHAT",
+                     "MAX_RETRIES", "LLM_TIMEOUT", "OPENALEX_EMAIL") + SECRET_SETTINGS
+
+
+def _env_quote(value: str) -> str:
+    """Quote a value for a .env line when it contains characters python-dotenv
+    would otherwise misread (spaces, '#', quotes)."""
+    if value == "" or all(c.isalnum() or c in "-_./:@+=,~%" for c in value):
+        return value
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def update_env(values: dict, path: str = ENV_PATH) -> list:
+    """Write ``values`` (``KEY -> str``) into the .env file, preserving comments,
+    blank lines and the order of existing entries; unknown keys are appended.
+    The running process's ``os.environ`` is updated too, because
+    ``load_dotenv`` never overrides variables that are already set, so a plain
+    re-read would keep serving the old values. Returns the keys written."""
+    lines = []
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            lines = f.read().splitlines()
+
+    pending = dict(values)
+    out = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            key = stripped.split("=", 1)[0].strip()
+            if key.startswith("export "):
+                key = key[len("export "):].strip()
+            if key in pending:
+                out.append(f"{key}={_env_quote(pending.pop(key))}")
+                continue
+        out.append(line)
+    for key, value in pending.items():
+        out.append(f"{key}={_env_quote(value)}")
+
+    with open(path, "w") as f:
+        f.write("\n".join(out) + "\n")
+
+    for key, value in values.items():
+        if value == "":
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+    return list(values)
+
+
 def load_criteria(path: str = CRITERIA_PATH) -> dict:
     if os.path.exists(path):
         with open(path, 'r') as f:
@@ -109,8 +163,8 @@ def load_config():
         "MODEL_QUERY": os.getenv("MODEL_QUERY", ""),
         "MODEL_CRITERIA": os.getenv("MODEL_CRITERIA", ""),
         "MODEL_CHAT": os.getenv("MODEL_CHAT", ""),
-        "MAX_RETRIES": int(os.getenv("MAX_RETRIES", "3")),
-        "LLM_TIMEOUT": float(os.getenv("LLM_TIMEOUT", "300")),
+        "MAX_RETRIES": int(os.getenv("MAX_RETRIES") or "3"),
+        "LLM_TIMEOUT": float(os.getenv("LLM_TIMEOUT") or "300"),
         "CRITERIA": load_criteria(),
         # --- Optional credentials for the literature-database harvesters
         # (src/harvest.py). OpenAlex, arXiv and Crossref work without any key.
