@@ -272,5 +272,12 @@ def test_check_resolved_model_tolerates_snapshots_but_not_other_models():
     assert llm.check_resolved_model("anthropic/claude-sonnet-5", "Anthropic/Claude-Sonnet-5-20260301")
     assert llm.check_resolved_model("gemini-3.5-flash", "models/gemini-3.5-flash")
     assert llm.check_resolved_model("anthropic/claude-sonnet-5", "")   # nothing reported
+    # OrcaRouter reports the upstream's own name for free-tier models.
+    assert llm.check_resolved_model("deepseek/deepseek-v4-flash-free", "deepseek-v4-flash")
+    assert llm.check_resolved_model("qwen/qwen3.8-27b-free", "Qwen/Qwen3.8-27B")
+    assert llm.check_resolved_model("tencent/hy3-free", "hy3")
+    assert llm.check_resolved_model("meta/llama-5:free", "llama-5")
     assert not llm.check_resolved_model("anthropic/claude-sonnet-5", "qwen/qwen-4")
+    assert not llm.check_resolved_model("deepseek/deepseek-v4-flash-free", "hy3")
+    assert not llm.check_resolved_model("tencent/hy3-free", "deepseek-v4-flash")
     assert llm.LLMError("x", code="model_substituted").fatal

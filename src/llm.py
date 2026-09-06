@@ -307,21 +307,38 @@ def screening_model(cfg: Optional[Dict[str, Any]] = None) -> str:
             f"Screening must run on one fixed model for reproducibility, but "
             f"'{model}' is an OrcaRouter meta-model that routes each request to a "
             f"different upstream. Set MODEL_SCREENING in .env to a concrete id such "
-            f"as 'anthropic/claude-sonnet-5' (run 'python3 test_llm.py --models' to "
+            f"as 'anthropic/claude-sonnet-5', or a free one such as "
+            f"'deepseek/deepseek-v4-flash-free' (run 'python3 test_llm.py --models' to "
             f"list them). Meta-models remain fine for MODEL_QUERY, MODEL_CRITERIA and "
             f"MODEL_CHAT.")
     return model
 
 
+FREE_SUFFIXES = ("-free", ":free")
+
+
 def _norm_model_id(model: str) -> str:
+    """Reduce a model id to its core name for comparison: lower-case, without
+    the vendor prefix (``deepseek/``), the Gemini ``models/`` prefix, or a
+    free-tier marker (``-free`` / ``:free``). OrcaRouter reports the upstream's
+    own name in ``x-orca-resolved-model`` (``deepseek-v4-flash`` for
+    ``deepseek/deepseek-v4-flash-free``, ``Qwen/Qwen3.8-27B`` for
+    ``qwen/qwen3.8-27b-free``), so only the core name is comparable."""
     m = (model or "").strip().lower()
-    return m[len("models/"):] if m.startswith("models/") else m
+    if "/" in m:
+        m = m.rsplit("/", 1)[1]
+    for suffix in FREE_SUFFIXES:
+        if m.endswith(suffix):
+            m = m[: -len(suffix)]
+    return m
 
 
 def check_resolved_model(requested: str, resolved: str) -> bool:
     """Whether the model the provider reports having used is the one we asked
-    for. Tolerates an empty report (nothing to check) and version suffixes
-    (``anthropic/claude-sonnet-5`` vs ``anthropic/claude-sonnet-5-20260301``)."""
+    for. Tolerates an empty report (nothing to check), vendor-prefix and
+    free-tier naming differences (see ``_norm_model_id``) and dated snapshots
+    (``claude-sonnet-5`` vs ``claude-sonnet-5-20260301``). Different core
+    names (``claude-sonnet-5`` vs ``qwen3.8-27b``) fail."""
     req, res = _norm_model_id(requested), _norm_model_id(resolved)
     if not req or not res:
         return True

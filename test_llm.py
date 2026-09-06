@@ -85,8 +85,10 @@ def main():
         except LLMError as e:
             print(f"   {task:<10} {model:<35} FAILED: {e}")
             if ps["provider"] == "orcarouter" and e.status == 402:
-                print("              -> add credits at https://www.orcarouter.ai/console/billing "
-                      "or set MODEL_NAME=orcarouter/free")
+                print("              -> add credits at https://www.orcarouter.ai/console/billing, "
+                      "or use free models: MODEL_NAME=orcarouter/free and, for screening, a "
+                      "concrete '-free' id from the list above (e.g. "
+                      "MODEL_SCREENING=deepseek/deepseek-v4-flash-free)")
             elif ps["provider"] == "gemini" and e.status == 404:
                 print("              -> this Gemini model is not available to your key; pick one "
                       "from the list above (drop the 'models/' prefix) and set MODEL_NAME")

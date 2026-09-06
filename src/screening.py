@@ -217,8 +217,9 @@ GEMINI_BILLING_HINT = (
 
 PINNING_HINT = (
     "Screening runs on one fixed model for reproducibility. Set MODEL_SCREENING in "
-    ".env to a concrete OrcaRouter model id (e.g. anthropic/claude-sonnet-5), not a "
-    "meta-model such as orcarouter/auto; results from a substituted model are discarded."
+    ".env to a concrete OrcaRouter model id (e.g. anthropic/claude-sonnet-5, or a free "
+    "one such as deepseek/deepseek-v4-flash-free), not a meta-model such as "
+    "orcarouter/auto; results from a substituted model are discarded."
 )
 
 
