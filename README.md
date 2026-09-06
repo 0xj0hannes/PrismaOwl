@@ -47,6 +47,27 @@ This tool takes a complementary, zero-shot approach: it sends each record to an 
 
 ### 2. Install and run
 
+**macOS / Linux** — one command downloads PrismaOwl into a `PrismaOwl` folder, checks for Python 3.9+, creates a virtual environment and installs everything into that folder:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/0xj0hannes/PrismaOwl/main/install.sh | bash
+cd PrismaOwl && ./start.sh
+```
+
+**Windows (PowerShell)** — download or clone the repository, then in its folder:
+
+```powershell
+.\install.ps1
+.\start.ps1
+```
+
+`start.sh` / `start.ps1` start the server and open `http://127.0.0.1:8000` in your browser (`PORT=8080 ./start.sh` for another port; press Ctrl+C to stop). Run the installer again at any time to update the dependencies after a `git pull`.
+
+<details>
+<summary><strong>For developers: manual setup</strong></summary>
+
+The scripts do nothing you cannot do by hand. From a clone:
+
 ```bash
 git clone https://github.com/0xj0hannes/PrismaOwl.git
 cd PrismaOwl
@@ -57,10 +78,12 @@ source .venv/bin/activate        # macOS / Linux (bash, zsh)
 # .venv\Scripts\activate         # Windows (PowerShell or cmd)
 
 pip install -r requirements.txt
-python -m uvicorn app:app --host 127.0.0.1 --port 8000
+python -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000` in your browser. Activate the virtual environment in every new terminal before starting the server (fish users: the `activate.fish` script; the plain `activate` script is bash/zsh syntax).
+Open `http://127.0.0.1:8000` in your browser. Activate the virtual environment in every new terminal before starting the server (fish users: the `activate.fish` script; the plain `activate` script is bash/zsh syntax). `--reload` restarts the server when Python files change; static files are versioned with a `?v=` query, so bump it and hard-refresh after editing them. Tests: `pip install -r requirements-dev.txt && pytest`.
+
+</details>
 
 ### 3. Configure in the app
 
@@ -139,6 +162,7 @@ Meta-models remain fine for query building, criteria drafting and chat.
 | `src/chat.py` | Assistant over the screened corpus, with the record-under-review focus. |
 | `src/reporting.py` | CSV report. |
 | `static/` | Vanilla HTML/CSS/JS frontend. |
+| `install.sh`, `start.sh`, `install.ps1`, `start.ps1` | One-step install and start scripts (macOS/Linux and Windows). |
 | `main.py`, `test_llm.py` | Deprecated command-line tools. |
 
 ---
