@@ -77,6 +77,15 @@
                     <label class="field-label mt-10">Feedback for refinement (optional)</label>
                     <textarea id="strategy-feedback" rows="2"
                         placeholder="e.g. Add terms for nurses and physicians; restrict to 2010 onwards; drop the 'meditation apps' concept"></textarea>
+                    <details class="mt-10">
+                        <summary class="info-text">Advanced: rationale &amp; limitations (filled in by the LLM, editable)</summary>
+                        <label class="field-label mt-10">Rationale</label>
+                        <textarea id="strategy-rationale" rows="3"
+                            placeholder="Why these concepts and terms were chosen (for your methods section)"></textarea>
+                        <label class="field-label mt-10">Limitations</label>
+                        <textarea id="strategy-limitations" rows="2"
+                            placeholder="Known gaps of the search (for your methods section)"></textarea>
+                    </details>
                     <div class="btn-row mt-10">
                         <button class="btn-primary" id="btn-strategy-generate">✨ Generate with AI</button>
                         <button class="btn-outline" id="btn-strategy-refine">↻ Refine current with AI</button>
@@ -108,13 +117,6 @@
                     <p class="info-text">Edit freely. <strong>Run</strong> harvests through the database's official API and
                         saves a .bib file below; databases without an open API show a <em>manual export</em> hint.</p>
                     <div id="queries-container" class="mt-10"></div>
-                    <details class="mt-10">
-                        <summary class="info-text">Rationale &amp; limitations (from the LLM)</summary>
-                        <label class="field-label mt-10">Rationale</label>
-                        <textarea id="strategy-rationale" rows="3"></textarea>
-                        <label class="field-label mt-10">Limitations</label>
-                        <textarea id="strategy-limitations" rows="2"></textarea>
-                    </details>
                     <div class="btn-row mt-20">
                         <button class="btn-success" id="btn-strategy-save">💾 Save strategy</button>
                         <button class="btn-outline" id="btn-strategy-reload">Discard changes</button>
