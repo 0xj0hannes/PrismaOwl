@@ -90,7 +90,14 @@ MODEL_CHAT=google/gemini-3.5-flash
 
 > **Screening is pinned to one model.** Screening decisions are what you report, so they must be reproducible and objective: every record of a review has to be judged by the same, explicitly named model. When the provider is OrcaRouter, `MODEL_SCREENING` (or `MODEL_NAME` if the override is empty) must therefore be a concrete `vendor/model` id. The routing meta-models `orcarouter/auto`, `orcarouter/free` and `orcarouter/fusion-*` are refused for screening, the model id the router reports back is checked against the pin after every call (a substituted answer is discarded and the batch stops), and a batch will not start while existing results were produced by a different model — restore the previous model or reset the screening results first. Each result stores the model that judged it (`model_version`) for the audit trail. Meta-models remain fine for query building, criteria drafting and chat.
 
-Run `python3 test_llm.py` to list every model id your key can use and to check that each configured task model answers (add `--provider gemini` or `--provider orcarouter` to test the other provider). A `402` error from OrcaRouter means the account has no credits. See `.env.example` for the optional harvester keys (`OPENALEX_EMAIL`, `SEMANTIC_SCHOLAR_API_KEY`, `SCOPUS_API_KEY`, `IEEE_API_KEY`).
+Run `python3 test_llm.py` to list every model id your key can use and to check that each configured task model answers (add `--provider gemini` or `--provider orcarouter` to test the other provider). A `402` error from OrcaRouter means the account has no credits.
+
+**Using OrcaRouter without credits.** Set `MODEL_NAME=orcarouter/free` so query building, criteria drafting and chat use free upstream models. Screening still has to be pinned to one concrete model, so pick one of the free ids from `python3 test_llm.py --models` (they end in `-free`), for example:
+
+```env
+MODEL_NAME=orcarouter/free
+MODEL_SCREENING=deepseek/deepseek-v4-flash-free
+``` See `.env.example` for the optional harvester keys (`OPENALEX_EMAIL`, `SEMANTIC_SCHOLAR_API_KEY`, `SCOPUS_API_KEY`, `IEEE_API_KEY`).
 
 ---
 
