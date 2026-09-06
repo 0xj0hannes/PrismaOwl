@@ -1,6 +1,6 @@
 # 🦉 PrismaOwl
 
-**PrismaOwl** is a high-precision, LLM-assisted screening assistant designed for **Systematic Literature Reviews**. This system leverages LLMs, either routed through [OrcaRouter](https://www.orcarouter.ai) (an OpenAI-compatible gateway to 100+ models) or called directly on the Google Gemini API, to accelerate the search-strategy design, literature harvesting and title/abstract screening phases of the PRISMA 2020 reporting guideline [[1]](#references), specifically optimized for research on **cybercriminal behavior** and the **human element** in cybersecurity.
+**PrismaOwl** is a high-precision, LLM-assisted screening assistant designed for **Systematic Literature Reviews**. This system leverages LLMs, either routed through [OrcaRouter](https://www.orcarouter.ai) (an OpenAI-compatible gateway to 100+ models) or called directly on the Google Gemini API, to accelerate the search-strategy design, literature harvesting and title/abstract screening phases of the PRISMA 2020 reporting guideline [[1]](#references). It is **domain-agnostic**: the inclusion criteria are plain-language rules you write (or let the LLM draft) for your own review, so the same tool serves medicine, psychology, education, software engineering, criminology, or any other field.
 
 The tool supports the *identification* (search strategy + database harvesting) and *screening* stages described in PRISMA 2020 [[1]](#references), plus an LLM chat over the included records to help with synthesis; it does **not** replace the other PRISMA stages (protocol registration, eligibility assessment of full texts, risk-of-bias appraisal, or reporting). All AI-suggested decisions are user-configurable inclusion criteria, fully logged for audit, and surfaced for human adjudication in the "Maybe" review queue.
 
@@ -22,7 +22,8 @@ This tool takes a complementary, zero-shot approach: it sends each record to an 
 - 💬 **Ask-the-corpus Chatbot**: Chat with an LLM that has read every included record; answers cite record IDs.
 - 🔀 **Model Routing via OrcaRouter, or Gemini directly**: One OrcaRouter key gives you any model (`orcarouter/auto` for adaptive routing, or pin a different model per task: screening, query building, criteria, chat). Prefer Google's free tier? Set `GEMINI_API_KEY` and the same code talks to the Gemini API instead.
 - 🖥 **Premium Web Dashboard**: A sleek, dark-mode GUI natively powered by FastAPI for seamless visual ingestion, screening, and human-in-the-loop review.
-- 🔬 **High-Precision AI Screening**: Strictly engineered to optimize precision—enforcing an objective standard that requires explicit evidence of the human element.
+- 🔬 **High-Precision AI Screening**: Engineered to favour precision over recall—every criterion needs explicit, quoted evidence from the title or abstract before a record is included.
+- 🧭 **Any discipline**: Nothing about a research field is hard-coded. Criteria, search concepts and the chat all derive from your own research question.
 - 💾 **Hybrid Persistence**: Robust JSON databasing for CLI scripts and heavy-duty global deduplication SQLite persistence (`data/prisma.db`) for web operations.
 - 🤝 **Interactive Human-in-the-loop**: Rapid-fire visual interface for the manual review of ambiguous AI decisions ("Maybe" cases).
 - 🔄 **Stateful Execution**: Automatic background save-states guarantee you will never lose screening work from API limits or closed tabs.
@@ -45,11 +46,21 @@ This tool takes a complementary, zero-shot approach: it sends each record to an 
 > **Note on Gemini key types:** Keys created in AI Studio today are issued as the newer *auth key* type, so a fresh key already meets current requirements. If you are reusing an older *Standard* key, migrate it — [Google's docs](https://ai.google.dev/gemini-api/docs/api-key) state the Gemini API will reject Standard keys from September 2026, and unrestricted keys left dormant for an extended period are blocked (shown with a **Blocked** tag in AI Studio). If screening suddenly fails on a key that used to work, check this first.
 
 ### 2. Installation
+Clone the repository and install the dependencies into a virtual environment so they stay isolated from your system Python:
+
 ```bash
-git clone <repository-url>
+git clone https://github.com/0xj0hannes/PrismaOwl.git
 cd PrismaOwl
+
+python3 -m venv .venv            # create the virtual environment (once)
+source .venv/bin/activate        # macOS / Linux (bash, zsh)
+# source .venv/bin/activate.fish # fish shell
+# .venv\Scripts\activate         # Windows (PowerShell or cmd)
+
 pip install -r requirements.txt
 ```
+
+Activate the environment in every new terminal before running the commands below (use the `activate.fish` script if your shell is fish; the plain `activate` script is bash/zsh syntax and fails there). If you prefer not to activate it, prefix commands with `.venv/bin/python` instead of `python3`.
 
 ### 3. Environment Setup
 Create a `.env` file in the root directory. With OrcaRouter:
@@ -85,7 +96,7 @@ Run `python3 test_llm.py` to list every model id your key can use and to check t
 
 ## ⚙️ Configuring Inclusion Criteria
 
-PrismaOwl is completely dynamic and allows you to configure arbitrary inclusion criteria limits for different projects!
+PrismaOwl is completely dynamic: the inclusion criteria are the only place your research field enters the system, and you define them per project. The `criteria.json` shipped in the repository is just a **sample** (from a criminology review on cybercriminal behaviour); replace it with criteria for your own topic before screening.
 
 Three ways to define them:
 
@@ -106,9 +117,9 @@ The system's entire stack—including the LLM Prompts, the CSV Export Analytics,
 
 ## 🌐 Web GUI Usage (Recommended)
 
-To launch the full interactive web experience:
+To launch the full interactive web experience (with the virtual environment activated):
 ```bash
-.venv/bin/uvicorn app:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
 Then navigate to `http://127.0.0.1:8000` in your browser.
 
@@ -129,17 +140,17 @@ The system also retains terminal commands for headless pipeline scripting:
 ### Step 0: Search strategy & harvesting (optional)
 ```bash
 # Ask the LLM for concept blocks + one query per database (saved to search_strategy.json)
-python3 main.py query --topic "Psychological traits of cybercriminal offenders"
-python3 main.py query --feedback "add insider-threat terms, restrict to 2010+"   # refine
+python3 main.py query --topic "Effectiveness of mindfulness-based interventions on burnout in healthcare workers"
+python3 main.py query --feedback "add terms for nurses and physicians; restrict to 2010 onwards"   # refine
 python3 main.py query --show
 
 # Run the saved query for a database (or pass --query) and save BibTeX
 python3 main.py harvest --list-sources
 python3 main.py harvest --source openalex --max 1000
-python3 main.py harvest --source arxiv --query 'all:"cybercrime" AND abs:psychology' --output bib_files/arxiv.bib
+python3 main.py harvest --source arxiv --query 'all:"large language model" AND abs:"code review"' --output bib_files/arxiv.bib
 
 # Draft inclusion criteria from the research question
-python3 main.py criteria --topic "Psychological traits of cybercriminal offenders" --count 3
+python3 main.py criteria --topic "Effectiveness of mindfulness-based interventions on burnout in healthcare workers" --count 3
 ```
 
 ### Step 1: Ingestion & Deduplication
@@ -168,7 +179,7 @@ python3 main.py report --input data/final_included.json --output data/screening_
 ### Step 5: Ask the corpus
 ```bash
 python3 main.py chat --input data/final_included.json                     # interactive REPL
-python3 main.py chat --input data/final_included.json --ask "Which papers use the Dark Triad?"
+python3 main.py chat --input data/final_included.json --ask "Which papers report a randomised controlled trial?"
 ```
 
 ---
