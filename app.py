@@ -412,12 +412,38 @@ def _ingest_records(new_records: List[Record]) -> Dict[str, Any]:
             "total_records_db": len(canonical) + len(duplicates)}
 
 
+def _duplicate_rows(records: List[Dict[str, Any]], offset: int, limit: int) -> Dict[str, Any]:
+    """One page of duplicate records (newest ingested last), each with the
+    record it duplicates."""
+    by_id = {r["id"]: r for r in records}
+    dups = [r for r in records if r.get("is_duplicate")]
+    offset = max(0, int(offset))
+    limit = max(1, min(int(limit), 1000))
+    rows = []
+    for r in dups[offset:offset + limit]:
+        canon = by_id.get(r.get("duplicate_of") or "", {})
+        rows.append({
+            "id": r["id"], "title": r.get("title", ""), "year": r.get("year"), "doi": r.get("doi"),
+            "source_file": r.get("source_file", ""), "reason": r.get("duplicate_reason", ""),
+            "duplicate_of": r.get("duplicate_of"), "canonical_title": canon.get("title", ""),
+            "canonical_source": canon.get("source_file", ""),
+        })
+    return {"total": len(dups), "offset": offset, "limit": limit, "items": rows,
+            "has_more": offset + len(rows) < len(dups)}
+
+
+@app.get("/api/ingest/duplicates")
+async def ingest_duplicates(offset: int = 0, limit: int = 100):
+    """Paged list of duplicate records for the Ingestion dashboard."""
+    return _duplicate_rows(get_all_records(), offset, limit)
+
+
 @app.get("/api/ingest/stats")
 async def ingest_stats(limit: int = 100):
     """Corpus dashboard: identified / unique / duplicate counts, per-source
-    breakdown and the list of duplicate records with what they duplicate."""
+    breakdown and the first page of duplicate records (see
+    /api/ingest/duplicates for paging)."""
     records = get_all_records()
-    by_id = {r["id"]: r for r in records}
     dups = [r for r in records if r.get("is_duplicate")]
     per_source: Dict[str, Dict[str, int]] = {}
     for r in records:
@@ -426,18 +452,10 @@ async def ingest_stats(limit: int = 100):
         row["records"] += 1
         if r.get("is_duplicate"):
             row["duplicates"] += 1
-    dup_rows = []
-    for r in dups[:max(1, min(int(limit), 1000))]:
-        canon = by_id.get(r.get("duplicate_of") or "", {})
-        dup_rows.append({
-            "id": r["id"], "title": r.get("title", ""), "year": r.get("year"), "doi": r.get("doi"),
-            "source_file": r.get("source_file", ""), "reason": r.get("duplicate_reason", ""),
-            "duplicate_of": r.get("duplicate_of"), "canonical_title": canon.get("title", ""),
-            "canonical_source": canon.get("source_file", ""),
-        })
+    page = _duplicate_rows(records, 0, limit)
     return {"total_records": len(records), "unique": len(records) - len(dups), "duplicates": len(dups),
             "sources": [{"source_file": k, **v} for k, v in sorted(per_source.items())],
-            "duplicate_list": dup_rows, "duplicate_list_truncated": len(dups) > limit}
+            "duplicate_list": page["items"], "duplicate_list_truncated": page["has_more"]}
 
 
 @app.post("/api/ingest")

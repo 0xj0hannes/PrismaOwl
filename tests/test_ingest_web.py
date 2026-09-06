@@ -169,3 +169,20 @@ def test_harvest_job_failure_is_recorded(web, monkeypatch):
     run = asyncio.run(web.harvest_runs())["runs"][0]
     assert run["status"] == "failed" and "SCOPUS_API_KEY" in run["error"]
     assert db.get_records_for_harvest("hx") == []
+
+
+def test_duplicates_endpoint_pages(web):
+    canon = make_record(id="c", doi="10.1/c", source_file="f.bib")
+    dups = [make_record(id=f"d{i}", doi="10.1/c", source_file="g.bib") for i in range(7)]
+    _ingest(web, [canon] + dups)
+    p1 = asyncio.run(web.ingest_duplicates(offset=0, limit=3))
+    p2 = asyncio.run(web.ingest_duplicates(offset=3, limit=3))
+    p3 = asyncio.run(web.ingest_duplicates(offset=6, limit=3))
+    assert (p1["total"], len(p1["items"]), p1["has_more"]) == (7, 3, True)
+    assert (len(p2["items"]), p2["has_more"]) == (3, True)
+    assert (len(p3["items"]), p3["has_more"]) == (1, False)
+    ids = [r["id"] for r in p1["items"] + p2["items"] + p3["items"]]
+    assert len(set(ids)) == 7 and all(r["duplicate_of"] == "c" for r in p1["items"])
+    # The stats endpoint carries the first page and the has-more flag.
+    st = asyncio.run(web.ingest_stats(limit=5))
+    assert len(st["duplicate_list"]) == 5 and st["duplicate_list_truncated"] is True

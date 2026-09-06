@@ -95,16 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
             srcBody.innerHTML = d.sources.map(s =>
                 `<tr><td>${esc(s.source_file)}</td><td class="num">${s.records}</td><td class="num">${s.duplicates}</td><td class="num">${s.records - s.duplicates}</td></tr>`
             ).join('') || '<tr><td colspan="4" class="info-text">No records yet.</td></tr>';
-            const dupBody = $('ingest-dups-table').querySelector('tbody');
-            dupBody.innerHTML = d.duplicate_list.map(r => `<tr>
-                <td>${esc(r.title)}<span class="meta">${esc(r.year || '')}${r.doi ? ' · ' + esc(r.doi) : ''}</span></td>
-                <td>${esc(r.source_file)}</td>
-                <td>${esc(r.reason || '')}</td>
-                <td>${esc(r.canonical_title)}<span class="meta">${esc(r.canonical_source)}</span></td></tr>`
-            ).join('') || '<tr><td colspan="4" class="info-text">No duplicates detected.</td></tr>';
-            const more = $('ingest-dups-more');
-            more.classList.toggle('hidden', !d.duplicate_list_truncated);
-            if (d.duplicate_list_truncated) more.textContent = `Showing the first ${d.duplicate_list.length} of ${d.duplicates} duplicates. The full list is in the CSV report.`;
+            renderDuplicatePage(d.duplicate_list, 0, d.duplicates, d.duplicate_list_truncated);
         } catch (e) { console.error('Failed to load ingestion stats', e); }
         try {
             const r = await api('/api/harvest/runs');
@@ -119,6 +110,35 @@ document.addEventListener('DOMContentLoaded', () => {
             }).join('') || '<tr><td colspan="7" class="info-text">No harvest runs yet. Run a query on the Search Strategy tab.</td></tr>';
         } catch (_) { /* ignore */ }
     }
+
+    // Duplicates table: paged, 100 rows at a time, appended with "Load more".
+    const DUP_PAGE = 100;
+    let dupLoaded = 0;
+    const dupRow = (r) => `<tr>
+                <td>${esc(r.title)}<span class="meta">${esc(r.year || '')}${r.doi ? ' · ' + esc(r.doi) : ''}</span></td>
+                <td>${esc(r.source_file)}</td>
+                <td>${esc(r.reason || '')}</td>
+                <td>${esc(r.canonical_title)}<span class="meta">${esc(r.canonical_source)}</span></td></tr>`;
+    function renderDuplicatePage(items, offset, total, hasMore) {
+        const body = $('ingest-dups-table').querySelector('tbody');
+        if (offset === 0) body.innerHTML = '';
+        if (!total) body.innerHTML = '<tr><td colspan="4" class="info-text">No duplicates detected.</td></tr>';
+        else body.insertAdjacentHTML('beforeend', items.map(dupRow).join(''));
+        dupLoaded = offset + items.length;
+        $('ingest-dups-more').textContent = total ? `Showing ${Math.min(dupLoaded, total)} of ${total} duplicates.` : '';
+        const btn = $('btn-dups-more');
+        btn.classList.toggle('hidden', !hasMore);
+        btn.textContent = `Load ${Math.min(DUP_PAGE, Math.max(0, total - dupLoaded))} more`;
+    }
+    $('btn-dups-more').addEventListener('click', async () => {
+        const btn = $('btn-dups-more');
+        btn.disabled = true;
+        try {
+            const d = await api(`/api/ingest/duplicates?offset=${dupLoaded}&limit=${DUP_PAGE}`);
+            renderDuplicatePage(d.items, d.offset, d.total, d.has_more);
+        } catch (e) { $('ingest-dups-more').textContent = 'Could not load more: ' + e.message; }
+        finally { btn.disabled = false; }
+    });
 
     // ------------------------------------------------------------------
     // Search Strategy
