@@ -306,3 +306,11 @@ def test_criteria_export_and_import_endpoints(web, monkeypatch):
     cfgmod.save_search_strategy({"research_question": "rq", "concepts": [], "queries": {}})
     out = asyncio.run(web.export_search_strategy())
     assert json.loads(out.body)["research_question"] == "rq"
+
+
+def test_documents_work_before_init_db_and_without_data_dir(tmp_path, monkeypatch):
+    import src.config as cfgmod
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "fresh" / "nested" / "prisma.db"))
+    assert cfgmod.load_criteria() == {}          # no directory, no database, no table yet
+    cfgmod.save_criteria({"IC1": {"name": "n", "definition": "d"}})
+    assert list(cfgmod.load_criteria()) == ["IC1"]

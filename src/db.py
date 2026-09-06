@@ -102,6 +102,11 @@ def save_document(key: str, data: dict) -> None:
 
 @contextmanager
 def get_db():
+    # The documents (criteria, strategy) are read on import of the screening
+    # module, possibly before init_db() ran: make sure the directory exists.
+    parent = os.path.dirname(DB_PATH)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=15.0)
     conn.row_factory = sqlite3.Row
     try:
