@@ -23,6 +23,7 @@ PROVIDERS = {
         "base_url": "https://api.orcarouter.ai/v1",
         "default_model": "orcarouter/auto",
         "console": "https://www.orcarouter.ai/console",
+        "signup": "https://www.orcarouter.ai/ref/ref_92815be053059d75c9cb",   # referral link (OrcaRouter open-source program)
     },
     "gemini": {
         "label": "Google Gemini",

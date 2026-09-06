@@ -6,7 +6,9 @@ The LLM advises at every stage; the human decides. Screening decisions are repro
 
 It is **domain-agnostic**: the inclusion criteria are plain-language rules you write (or let the LLM draft) for your own review, so the same tool serves medicine, psychology, education, software engineering, criminology, or any other field. It does **not** replace the other PRISMA stages (protocol registration, full-text eligibility assessment, risk-of-bias appraisal, synthesis): those remain yours.
 
-The LLM is reached either through [OrcaRouter](https://www.orcarouter.ai) (an OpenAI-compatible gateway to 100+ models, with a free routing mode) or directly through the Google Gemini API (free tier). No vendor SDK is involved.
+The LLM is reached either through [OrcaRouter](https://www.orcarouter.ai/ref/ref_92815be053059d75c9cb) (an OpenAI-compatible gateway to 100+ models, with a free routing mode) or directly through the Google Gemini API (free tier). No vendor SDK is involved.
+
+> **Built with OrcaRouter.** PrismaOwl takes part in OrcaRouter's open-source program. Signing up through [this link](https://www.orcarouter.ai/ref/ref_92815be053059d75c9cb) supports the project's development at no cost to you; the tool works the same with any OrcaRouter account.
 
 ---
 
@@ -41,7 +43,7 @@ This tool takes a complementary, zero-shot approach: it sends each record to an 
 - Python 3.9 or newer.
 - An API key for **one** of the two LLM providers. You enter it in the app, not in a file.
 
-**Option A — OrcaRouter (default).** Sign in to the [OrcaRouter console](https://www.orcarouter.ai/console) and create an API key (`sk-orca-…`). You do **not** have to add credits: OrcaRouter offers free upstream models, and the app's *Free* routing mode uses them. *Auto* routing (best model per request) needs credits; if you ever see `HTTP 402 insufficient_user_quota`, the account has no credits and the app is still on *Auto*.
+**Option A — OrcaRouter (default).** [Sign up for OrcaRouter](https://www.orcarouter.ai/ref/ref_92815be053059d75c9cb) (referral link, see above), then create an API key (`sk-orca-…`) in the [console](https://www.orcarouter.ai/console). You do **not** have to add credits: OrcaRouter offers free upstream models, and the app's *Free* routing mode uses them. *Auto* routing (best model per request) needs credits; if you ever see `HTTP 402 insufficient_user_quota`, the account has no credits and the app is still on *Auto*.
 
 **Option B — Google Gemini (free tier, no credit card).** Sign in to [Google AI Studio](https://aistudio.google.com/) and click **Get API key → Create API key**. As a new user, AI Studio provisions a default Google Cloud project for you and the key gets free-tier access immediately. If you already manage a GCP project you can instead enable the **Generative Language API** in [Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials) and create the key there (this is the free Gemini Developer API, not the billed Vertex AI).
 
