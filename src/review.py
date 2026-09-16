@@ -5,12 +5,12 @@ import json
 import random
 
 def load_screening_results(file_path: str) -> Dict[str, Any]:
-    with open(file_path, 'r') as f:
+    with open(file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
     return data
 
 def save_results(data: Dict[str, Any], file_path: str):
-    with open(file_path, 'w') as f:
+    with open(file_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 
 def run_review_loop(input_file: str, output_file: str):

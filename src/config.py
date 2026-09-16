@@ -80,7 +80,7 @@ def update_env(values: dict, path: str = ENV_PATH) -> list:
     re-read would keep serving the old values. Returns the keys written."""
     lines = []
     if os.path.exists(path):
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             lines = f.read().splitlines()
 
     pending = dict(values)
@@ -98,7 +98,7 @@ def update_env(values: dict, path: str = ENV_PATH) -> list:
     for key, value in pending.items():
         out.append(f"{key}={_env_quote(value)}")
 
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(out) + "\n")
 
     for key, value in values.items():

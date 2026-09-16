@@ -116,7 +116,7 @@ def main():
         
         # Save structural data
         dataset = Dataset(records=deduped)
-        with open(args.output, 'w') as f:
+        with open(args.output, 'w', encoding='utf-8') as f:
             f.write(dataset.model_dump_json(indent=2))
         print(f"Saved to {args.output}")
 
@@ -134,7 +134,7 @@ def main():
                   "Set LLM_PROVIDER=orcarouter or LLM_PROVIDER=gemini to choose the provider.")
             sys.exit(1)
 
-        with open(args.input, 'r') as f:
+        with open(args.input, 'r', encoding='utf-8') as f:
             data = json.load(f)
             records_data = data.get("records", [])
             from src.models import Record, ScreeningResult
@@ -146,7 +146,7 @@ def main():
         if os.path.exists(args.output):
             print(f"Found existing output {args.output}, attempting to resume...")
             try:
-                with open(args.output, 'r') as f:
+                with open(args.output, 'r', encoding='utf-8') as f:
                     existing_data = json.load(f)
                     res_data = existing_data.get("screening_results", {})
                     already_screened = {rid: ScreeningResult(**res) for rid, res in res_data.items()}
@@ -179,7 +179,7 @@ def main():
                 output_data["screening_results"][rid] = res.model_dump()
                 
                 # Save after every record for maximum safety
-                with open(args.output, 'w') as f:
+                with open(args.output, 'w', encoding='utf-8') as f:
                     json.dump(output_data, f, indent=2)
                 
                 # Check for failure in result
@@ -331,7 +331,7 @@ def main():
             sys.exit(1)
         from src.chat import ask, select_records
         from src.llm import LLMError
-        with open(args.input, 'r') as f:
+        with open(args.input, 'r', encoding='utf-8') as f:
             data = json.load(f)
         records = data.get("records", [])
         results = data.get("screening_results", {})

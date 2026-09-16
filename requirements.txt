@@ -1,4 +1,4 @@
-bibtexparser>=1.4.0
+bibtexparser>=1.4.0,<2  # 2.x (Sep 2026) removed bparser/bibdatabase/bwriter
 pydantic>=2.0.0
 requests>=2.31.0
 rapidfuzz>=3.0.0

@@ -7,7 +7,7 @@ from .config import load_config
 def generate_report(input_file: str, output_csv: str):
     print(f"Loading data from {input_file}...")
     try:
-        with open(input_file, 'r') as f:
+        with open(input_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
     except FileNotFoundError:
         print(f"Error: File {input_file} not found.")

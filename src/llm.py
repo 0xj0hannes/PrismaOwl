@@ -39,6 +39,7 @@ from .config import load_config, PROVIDERS, DEFAULT_PROVIDER, resolve_provider
 os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
     filename="logs/screening.log",
+    encoding="utf-8",
     level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
