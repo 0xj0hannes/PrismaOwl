@@ -30,6 +30,7 @@ def reload_config():
 os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
     filename="logs/screening.log",
+    encoding="utf-8",
     level=logging.DEBUG, # Set to DEBUG to capture detailed prompts and responses
     format="%(asctime)s - %(levelname)s - %(message)s"
 )

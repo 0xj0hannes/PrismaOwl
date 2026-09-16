@@ -46,7 +46,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 async def read_root():
     # Never let the browser cache the shell: it carries the ?v= asset versions,
     # so a stale copy would keep loading old JavaScript after an update.
-    with open("static/index.html", "r") as f:
+    with open("static/index.html", "r", encoding="utf-8") as f:
         return HTMLResponse(f.read(), headers={"Cache-Control": "no-store, max-age=0"})
 
 @app.get("/api/criteria")
@@ -809,7 +809,7 @@ async def download_report():
         "screening_results": results
     }
     
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as tmp_in:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w", encoding="utf-8") as tmp_in:
         import json
         json.dump(dataset, tmp_in)
         tmp_in_path = tmp_in.name
