@@ -155,16 +155,21 @@ class LLMClient:
             return
         message, code, etype = resp.text[:500], "", ""
         try:
-            err = resp.json().get("error", {})
-            if isinstance(err, dict):
-                message = err.get("message", message)
-                code = str(err.get("code", "") or "")
-                # OpenAI-style "type"; Gemini uses a gRPC "status" string instead.
-                etype = str(err.get("type", "") or err.get("status", "") or "")
-            elif isinstance(err, str):
-                message = err
+            payload = resp.json()
         except ValueError:
-            pass
+            payload = None
+        # Gemini sometimes wraps the error in a one-element list
+        # ([{"error": {...}}]); OpenAI-style APIs return a plain object.
+        if isinstance(payload, list):
+            payload = next((item for item in payload if isinstance(item, dict)), None)
+        err = payload.get("error", {}) if isinstance(payload, dict) else None
+        if isinstance(err, dict):
+            message = str(err.get("message") or message)
+            code = str(err.get("code", "") or "")
+            # OpenAI-style "type"; Gemini uses a gRPC "status" string instead.
+            etype = str(err.get("type", "") or err.get("status", "") or "")
+        elif isinstance(err, str) and err:
+            message = err
         raise LLMError(message, status=resp.status_code, code=code, error_type=etype)
 
     def list_models(self) -> List[Dict[str, Any]]:

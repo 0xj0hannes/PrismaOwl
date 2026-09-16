@@ -240,6 +240,31 @@ def test_gemini_error_status_string_is_fatal(monkeypatch):
     assert llm.LLMError("x", error_type="PERMISSION_DENIED").fatal
 
 
+def test_gemini_list_wrapped_error_body_is_parsed(monkeypatch):
+    # Gemini returns some errors as a one-element list; this used to crash
+    # _raise_for_error with AttributeError and surface as HTTP 500 (issue #17).
+    body = [{"error": {"code": 400, "message": "API key not valid. Please pass a valid API key.",
+                       "status": "INVALID_ARGUMENT"}}]
+    monkeypatch.setattr(llm.requests, "post", lambda *a, **k: _Resp(400, body))
+    client = llm.LLMClient("g", provider="gemini")
+    with pytest.raises(llm.LLMError) as ei:
+        client.chat([{"role": "user", "content": "hi"}], model="gemini-3.5-flash")
+    assert ei.value.status == 400
+    assert ei.value.error_type == "INVALID_ARGUMENT"
+    assert "API key not valid" in str(ei.value)
+
+
+@pytest.mark.parametrize("body", [[], ["oops"], "plain string", 42, None, {"error": None}])
+def test_unexpected_error_body_shapes_fall_back_to_raw_text(monkeypatch, body):
+    resp = _Resp(503, body, text="raw upstream text")
+    monkeypatch.setattr(llm.requests, "post", lambda *a, **k: resp)
+    client = llm.LLMClient("k")
+    with pytest.raises(llm.LLMError) as ei:
+        client.chat([{"role": "user", "content": "hi"}])
+    assert ei.value.status == 503
+    assert "raw upstream text" in str(ei.value)
+
+
 # ---------------------------------------------------------------------------
 # Screening model pinning helpers
 # ---------------------------------------------------------------------------
