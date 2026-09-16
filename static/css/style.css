@@ -518,6 +518,29 @@ input[type="password"] {
 .tag.muted { color: var(--text-secondary); }
 @media (max-width: 640px) { .settings-grid { grid-template-columns: 1fr; } }
 
+/* Model pickers (Settings > Models): select filled from the provider's list,
+   text input for custom ids; ids from another provider are flagged. */
+.model-field { display: flex; flex-direction: column; gap: 6px; }
+.model-field select { width: 100%; padding: 8px 10px; }
+.model-field .model-note { font-size: 0.75rem; line-height: 1.4; color: var(--accent-yellow); }
+.model-field.foreign select, .model-field.foreign input,
+.model-field.warn select, .model-field.warn input { border-color: var(--accent-yellow); }
+.model-field.foreign .model-note { color: var(--accent-red); }
+.model-field.foreign select, .model-field.foreign input { border-color: var(--accent-red); }
+.models-notice {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin: 4px 0 12px; padding: 10px 12px; border-radius: 8px; font-size: 0.85rem; line-height: 1.45;
+    border: 1px solid rgba(245, 158, 11, 0.45); background: rgba(245, 158, 11, 0.1);
+}
+.models-notice button { flex-shrink: 0; }
+.settings-section.flash { animation: sectionFlash 1.8s ease-out; border-radius: 10px; }
+@keyframes sectionFlash {
+    0%   { box-shadow: 0 0 0 3px var(--accent-blue); background: rgba(59, 130, 246, 0.16); }
+    60%  { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35); background: rgba(59, 130, 246, 0.08); }
+    100% { box-shadow: none; background: transparent; }
+}
+.settings-section.flash { scroll-margin-top: 12px; }
+
 /* Segmented toggle (Settings -> OrcaRouter routing) */
 .segmented { display: flex; gap: 8px; }
 .segment { flex: 1; cursor: pointer; }
@@ -534,6 +557,9 @@ input[type="password"] {
     background: rgba(59, 130, 246, 0.12); box-shadow: inset 0 0 0 1px var(--accent-blue);
 }
 .segment input:focus-visible + span { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+.segmented.disabled .segment { cursor: not-allowed; }
+.segmented.disabled .segment span { opacity: 0.45; }
+.segmented.disabled .segment:hover span { border-color: var(--border-glass); color: inherit; }
 
 /* Help buttons + help popup */
 .help-btn {

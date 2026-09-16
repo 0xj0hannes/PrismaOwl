@@ -1220,50 +1220,238 @@ document.addEventListener('DOMContentLoaded', () => {
         applyTheme(e.target.value);
     });
 
+    // A key counts as available when it is saved (and not marked for removal)
+    // or typed into the field right now.
+    function keyAvailable(key) {
+        const snap = settingsSnapshot || { secrets: {} };
+        const input = settingInput(key);
+        if (input.value.trim()) return true;
+        return !!(snap.secrets[key] || {}).set && input.dataset.clear !== '1';
+    }
+    // Mirror the server's auto-detect rule so the UI matches what will run.
+    function effectiveProvider() {
+        const chosen = settingInput('LLM_PROVIDER').value;
+        if (chosen) return chosen;
+        return keyAvailable('ORCA_API_KEY') ? 'orcarouter' : (keyAvailable('GEMINI_API_KEY') ? 'gemini' : 'orcarouter');
+    }
+    const providerLabel = (pv) => (settingsSnapshot && settingsSnapshot.providers[pv] || {}).label || pv;
+    const providerDefaultModel = (pv) => (settingsSnapshot && settingsSnapshot.providers[pv] || {}).default_model || '';
+
     function updateProviderBlocks() {
         const chosen = settingInput('LLM_PROVIDER').value;
-        const snap = settingsSnapshot || { secrets: {}, providers: {} };
-        const orcaSet = !!(snap.secrets.ORCA_API_KEY || {}).set;
-        const gemSet = !!(snap.secrets.GEMINI_API_KEY || {}).set;
-        // Mirror the server's auto-detect rule so the highlight matches what will run.
-        const active = chosen || (orcaSet ? 'orcarouter' : (gemSet ? 'gemini' : 'orcarouter'));
+        const active = effectiveProvider();
         ['orcarouter', 'gemini'].forEach(pv => {
             $(`provider-block-${pv}`).classList.toggle('active', pv === active);
             const tag = $(`tag-${pv}`);
-            const set = pv === 'orcarouter' ? orcaSet : gemSet;
+            const set = keyAvailable(pv === 'orcarouter' ? 'ORCA_API_KEY' : 'GEMINI_API_KEY');
             tag.textContent = pv === active ? 'active' : (set ? 'key saved' : 'no key');
             tag.className = 'tag ' + (pv === active ? 'ok' : (set ? '' : 'muted'));
         });
         $('setting-provider-help').textContent = chosen
-            ? `Screening, query building, criteria and chat will all use ${snap.providers[chosen]?.label || chosen}.`
-            : `Auto-detect picks OrcaRouter when its key is saved, otherwise Gemini. Currently: ${snap.providers[active]?.label || active}.`;
+            ? `Screening, query building, criteria and chat will all use ${providerLabel(chosen)}.`
+            : `Auto-detect picks OrcaRouter when its key is saved, otherwise Gemini. Currently: ${providerLabel(active)}.`;
+        $('models-provider-tag').textContent = providerLabel(active);
+        // The Auto/Free routing toggle writes orcarouter/* ids into MODEL_NAME,
+        // so it only makes sense while OrcaRouter is the provider in use.
+        const routingOff = active !== 'orcarouter';
+        const routing = $('orca-routing');
+        routing.classList.toggle('disabled', routingOff);
+        routing.title = routingOff ? `Routing applies to OrcaRouter only (${providerLabel(active)} is in use).` : '';
+        document.querySelectorAll('input[name="orca-routing"]').forEach(r => { r.disabled = routingOff; });
+        syncRoutingFromModel();
     }
-    settingInput('LLM_PROVIDER').addEventListener('change', updateProviderBlocks);
 
-    // OrcaRouter routing toggle: Auto <-> orcarouter/auto, Free <-> orcarouter/free.
-    // Anything else typed into MODEL_NAME leaves both unselected ("custom").
+    // ------------------------------------------------------------------
+    // Model pickers. Each MODEL_* field is a text input (the value that is
+    // saved) plus a <select> filled from /api/settings/models for the
+    // provider in use. Ids that are not in that provider's list (typically
+    // left over from the other provider) are flagged, and a switch of
+    // provider reloads the list, scrolls to this section and offers a reset.
+    // ------------------------------------------------------------------
+    const MODEL_FIELDS = ['MODEL_NAME', 'MODEL_SCREENING', 'MODEL_QUERY', 'MODEL_CRITERIA', 'MODEL_CHAT'];
+    const CUSTOM_MODEL = '__custom__';
     const ROUTING_MODELS = { auto: 'orcarouter/auto', free: 'orcarouter/free' };
     const isMetaModel = (id) => /^orcarouter\//i.test((id || '').trim());
     const isFreeModel = (id) => /(-|:)free$/i.test((id || '').trim());
-    let modelListCache = null;      // ids from /api/settings/models, once loaded
+    let modelLists = {};            // provider -> {label, models} from /api/settings/models
+    let pickersProvider = null;     // provider the pickers were last rendered for
+    let previousProvider = null;    // provider before the last change (for the notice)
+    const modelField = (key) => document.querySelector(`.model-field[data-key="${key}"]`);
+    const addOption = (select, value, label) => {
+        const o = document.createElement('option'); o.value = value; o.textContent = label; select.appendChild(o);
+    };
 
     function syncRoutingFromModel() {
         const name = settingInput('MODEL_NAME').value.trim().toLowerCase();
-        const mode = name === '' || name === ROUTING_MODELS.auto ? 'auto'
+        const mode = effectiveProvider() !== 'orcarouter' ? ''      // toggle is inert on other providers
+            : name === '' || name === ROUTING_MODELS.auto ? 'auto'
             : name === ROUTING_MODELS.free ? 'free' : '';
         document.querySelectorAll('input[name="orca-routing"]').forEach(r => { r.checked = r.value === mode; });
     }
-    settingInput('MODEL_NAME').addEventListener('input', syncRoutingFromModel);
 
-    async function loadModelList(provider) {
-        if (modelListCache) return modelListCache;
-        const res = await api('/api/settings/models' + (provider ? `?provider=${encodeURIComponent(provider)}` : ''));
-        modelListCache = res;
-        const dl = $('model-ids');
-        dl.innerHTML = '';
-        res.models.forEach(id => { const o = document.createElement('option'); o.value = id; dl.appendChild(o); });
-        return res;
+    // Does this id belong to another provider? With a loaded list: not in it.
+    // Without one: OrcaRouter ids carry a vendor prefix (anthropic/…), Gemini
+    // ids are bare (gemini-3.5-flash) or prefixed with models/.
+    const geminiLikeId = (id) => /^(models\/)?[^/]+$/i.test(id);
+    function foreignModel(id, pv) {
+        id = (id || '').trim();
+        if (!id) return false;
+        const list = modelLists[pv];
+        if (list) return !list.models.includes(id);
+        return pv === 'gemini' ? !geminiLikeId(id) : geminiLikeId(id);
     }
+
+    function modelNote(key, pv) {
+        const value = settingInput(key).value.trim();
+        if (foreignModel(value, pv)) {
+            return modelLists[pv]
+                ? `${value} is not in the ${providerLabel(pv)} model list.`
+                : `${value} looks like an id from another provider, not ${providerLabel(pv)}.`;
+        }
+        if (key === 'MODEL_SCREENING' && pv === 'orcarouter') {
+            const effective = value || settingInput('MODEL_NAME').value.trim() || providerDefaultModel(pv);
+            if (isMetaModel(effective)) return `Screening cannot run on ${effective}: pick one concrete model.`;
+        }
+        return '';
+    }
+
+    function updateModelNotes() {
+        const pv = effectiveProvider();
+        let foreign = 0;
+        MODEL_FIELDS.forEach(key => {
+            const wrap = modelField(key);
+            const note = wrap.querySelector('.model-note');
+            const text = modelNote(key, pv);
+            const isForeign = foreignModel(settingInput(key).value, pv);
+            if (isForeign) foreign += 1;
+            wrap.classList.toggle('foreign', isForeign);
+            wrap.classList.toggle('warn', !!text && !isForeign);
+            note.textContent = text;
+            note.classList.toggle('hidden', !text);
+        });
+        const notice = $('models-notice');
+        notice.classList.toggle('hidden', foreign === 0);
+        if (foreign) {
+            const from = previousProvider && previousProvider !== pv ? ` from ${providerLabel(previousProvider)}` : '';
+            $('models-notice-text').textContent =
+                `${foreign} model ${foreign === 1 ? 'field still holds an id' : 'fields still hold ids'}${from} that ${providerLabel(pv)} does not offer. ` +
+                `Pick ${providerLabel(pv)} models below or reset them to the provider defaults.`;
+            $('btn-models-reset').textContent = `Use ${providerLabel(pv)} defaults`;
+        }
+    }
+
+    function renderModelPickers() {
+        const pv = effectiveProvider();
+        const list = modelLists[pv];
+        pickersProvider = pv;
+        MODEL_FIELDS.forEach(key => {
+            const wrap = modelField(key);
+            const input = settingInput(key);
+            const select = wrap.querySelector('select');
+            const value = input.value.trim();
+            if (!list) {                       // no list: plain text input
+                select.classList.add('hidden');
+                input.classList.remove('hidden');
+                return;
+            }
+            select.innerHTML = '';
+            addOption(select, '', key === 'MODEL_NAME'
+                ? `Provider default (${providerDefaultModel(pv)})`
+                : 'Same as default (MODEL_NAME)');
+            list.models.forEach(id => addOption(select, id, id));
+            addOption(select, CUSTOM_MODEL, 'Other model id…');
+            const listed = value === '' || list.models.includes(value);
+            select.value = listed ? value : CUSTOM_MODEL;
+            select.classList.remove('hidden');
+            input.classList.toggle('hidden', listed);
+        });
+        updateModelNotes();
+    }
+
+    MODEL_FIELDS.forEach(key => {
+        const wrap = modelField(key);
+        const input = settingInput(key);
+        const select = wrap.querySelector('select');
+        select.addEventListener('change', () => {
+            if (select.value === CUSTOM_MODEL) {
+                input.classList.remove('hidden');
+                input.focus();
+                return;
+            }
+            input.value = select.value;
+            input.classList.add('hidden');
+            input.dispatchEvent(new Event('input'));
+        });
+        input.addEventListener('input', () => {
+            if (key === 'MODEL_NAME') syncRoutingFromModel();
+            updateModelNotes();
+        });
+    });
+
+    async function ensureModelList(pv, force = false) {
+        if (modelLists[pv] && !force) return modelLists[pv];
+        const st = $('settings-models-status');
+        setStatus(st, `Loading ${providerLabel(pv)} models…`);
+        try {
+            const res = await api(`/api/settings/models?provider=${encodeURIComponent(pv)}`);
+            modelLists[pv] = res;
+            if (effectiveProvider() === pv) setStatus(st, `${res.models.length} models from ${res.label}.`, 'success');
+            return res;
+        } catch (e) {
+            delete modelLists[pv];
+            if (effectiveProvider() === pv) setStatus(st, `${e.message} Until then, type model ids by hand.`, 'error');
+            return null;
+        }
+    }
+
+    // Load the list for the provider in use (if not cached) and re-render the
+    // pickers, unless the provider changed again while the request was running.
+    async function refreshModelPickers(force = false) {
+        const pv = effectiveProvider();
+        renderModelPickers();                       // immediate, with whatever is cached
+        if (modelLists[pv] && !force) {
+            const cached = modelLists[pv];
+            setStatus($('settings-models-status'), `${cached.models.length} models from ${cached.label}.`, 'success');
+            return;
+        }
+        await ensureModelList(pv, force);
+        if (effectiveProvider() === pv) renderModelPickers();
+    }
+
+    function focusModelsSection() {
+        const section = $('settings-models-section');
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        section.classList.remove('flash');
+        void section.offsetWidth;                   // restart the animation
+        section.classList.add('flash');
+        const wrap = modelField('MODEL_NAME');
+        const control = wrap.querySelector('select.hidden') ? wrap.querySelector('input') : wrap.querySelector('select');
+        setTimeout(() => control.focus({ preventScroll: true }), 350);
+    }
+
+    async function onProviderChange() {
+        const before = pickersProvider;
+        updateProviderBlocks();
+        const pv = effectiveProvider();
+        if (before && before !== pv) {
+            previousProvider = before;
+            focusModelsSection();
+        }
+        await refreshModelPickers();
+    }
+    settingInput('LLM_PROVIDER').addEventListener('change', onProviderChange);
+    ['ORCA_API_KEY', 'GEMINI_API_KEY'].forEach(k => settingInput(k).addEventListener('input', () => {
+        if (!settingInput('LLM_PROVIDER').value) onProviderChange();   // auto-detect may flip
+        else updateProviderBlocks();
+    }));
+
+    $('btn-models-reset').addEventListener('click', () => {
+        MODEL_FIELDS.forEach(key => { settingInput(key).value = ''; });
+        syncRoutingFromModel();
+        renderModelPickers();
+        setStatus($('settings-models-status'),
+            `Models reset to the ${providerLabel(effectiveProvider())} defaults (saved when you press Save).`, 'success');
+    });
 
     document.querySelectorAll('input[name="orca-routing"]').forEach(radio => radio.addEventListener('change', async () => {
         if (!radio.checked) return;
@@ -1275,14 +1463,13 @@ document.addEventListener('DOMContentLoaded', () => {
             // unless the field already holds one.
             if (!isFreeModel(screening.value)) {
                 let choice = (settingsSnapshot && settingsSnapshot.free_screening_default) || '';
-                try {
-                    setStatus(st, 'Looking up free models…');
-                    const res = await loadModelList('orcarouter');
+                const res = await ensureModelList('orcarouter');
+                if (res) {
                     const free = res.models.filter(isFreeModel);
                     if (free.length) choice = free.includes(choice) ? choice : free[0];
                     setStatus(st, `Screening model set to ${choice} (${free.length} free models available).`, 'success');
-                } catch (e) {
-                    setStatus(st, `Could not load the model list (${e.message}); using ${choice}.`, 'error');
+                } else {
+                    setStatus(st, `Could not load the model list; using ${choice}.`, 'error');
                 }
                 screening.value = choice;
             }
@@ -1291,6 +1478,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             setStatus(st, '');
         }
+        renderModelPickers();
     }));
 
     function renderSecret(key, state) {
@@ -1312,7 +1500,7 @@ document.addEventListener('DOMContentLoaded', () => {
         input.classList.toggle('cleared', clearing);
         input.placeholder = clearing ? 'will be removed on save' : 'saved - leave blank to keep';
         btn.textContent = clearing ? 'Keep' : 'Remove';
-        if (btn.dataset.clear === 'ORCA_API_KEY' || btn.dataset.clear === 'GEMINI_API_KEY') updateProviderBlocks();
+        if (btn.dataset.clear === 'ORCA_API_KEY' || btn.dataset.clear === 'GEMINI_API_KEY') onProviderChange();
     }));
 
     async function loadSettings() {
@@ -1327,6 +1515,8 @@ document.addEventListener('DOMContentLoaded', () => {
         syncRoutingFromModel();
         setStatus($('settings-status'), '');
         refreshPinWarning();
+        previousProvider = null;
+        await refreshModelPickers();
     }
 
     async function refreshPinWarning() {
@@ -1352,7 +1542,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function openSettings() {
         settingsModal.classList.remove('hidden');
-        modelListCache = null;
+        modelLists = {};
+        pickersProvider = null;
+        previousProvider = null;
+        $('models-notice').classList.add('hidden');
+        $('settings-models-section').classList.remove('flash');
         $('setting-theme').value = savedTheme();
         setStatus($('settings-test-status'), '');
         setStatus($('settings-models-status'), '');
@@ -1395,17 +1589,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    $('btn-settings-models').addEventListener('click', async () => {
-        const st = $('settings-models-status');
-        setStatus(st, 'Loading…');
-        try {
-            modelListCache = null;
-            const res = await loadModelList(settingInput('LLM_PROVIDER').value);
-            setStatus(st, `${res.models.length} models from ${res.label}; start typing in a field to pick one.`, 'success');
-        } catch (e) {
-            setStatus(st, e.message, 'error');
-        }
-    });
+    $('btn-settings-models').addEventListener('click', () => refreshModelPickers(true));
 
     applyTheme(savedTheme());
     // Deep links: #settings opens the dialog, #<tab id> opens that tab.
