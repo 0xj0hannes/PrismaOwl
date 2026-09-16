@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PrismaOwl</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=17">
+    <link rel="stylesheet" href="/static/css/style.css?v=19">
     <script>
         // Apply the saved theme before first paint to avoid a flash of the wrong theme.
         (function () {
@@ -620,28 +620,51 @@
                     </div>
                 </section>
 
-                <section class="settings-section">
+                <section class="settings-section" id="settings-models-section">
                     <div class="row-between">
-                        <h3>Models</h3>
+                        <h3>Models <span class="tag muted" id="models-provider-tag"></span></h3>
                         <div class="btn-row">
-                            <button class="btn-outline btn-sm" id="btn-settings-models" type="button">Load model list</button>
+                            <button class="btn-outline btn-sm" id="btn-settings-models" type="button">Reload model list</button>
                             <span class="status-inline" id="settings-models-status"></span>
                         </div>
                     </div>
-                    <datalist id="model-ids"></datalist>
+                    <div class="models-notice hidden" id="models-notice">
+                        <span id="models-notice-text"></span>
+                        <button class="btn-outline btn-sm" id="btn-models-reset" type="button">Reset models</button>
+                    </div>
                     <div class="settings-grid">
                         <label class="field-label" for="setting-MODEL_NAME">Default (MODEL_NAME)</label>
-                        <input type="text" id="setting-MODEL_NAME" list="model-ids" placeholder="empty = provider default">
+                        <div class="model-field" data-key="MODEL_NAME">
+                            <select class="model-select hidden" aria-label="Default (MODEL_NAME)"></select>
+                            <input type="text" id="setting-MODEL_NAME" placeholder="empty = provider default">
+                            <small class="model-note hidden"></small>
+                        </div>
                         <label class="field-label" for="setting-MODEL_SCREENING">Screening</label>
-                        <input type="text" id="setting-MODEL_SCREENING" list="model-ids" placeholder="one concrete model, e.g. anthropic/claude-sonnet-5">
+                        <div class="model-field" data-key="MODEL_SCREENING">
+                            <select class="model-select hidden" aria-label="Screening"></select>
+                            <input type="text" id="setting-MODEL_SCREENING" placeholder="one concrete model, e.g. anthropic/claude-sonnet-5">
+                            <small class="model-note hidden"></small>
+                        </div>
                         <label class="field-label" for="setting-MODEL_QUERY">Search strategy</label>
-                        <input type="text" id="setting-MODEL_QUERY" list="model-ids" placeholder="empty = default">
+                        <div class="model-field" data-key="MODEL_QUERY">
+                            <select class="model-select hidden" aria-label="Search strategy"></select>
+                            <input type="text" id="setting-MODEL_QUERY" placeholder="empty = default">
+                            <small class="model-note hidden"></small>
+                        </div>
                         <label class="field-label" for="setting-MODEL_CRITERIA">Criteria assistant</label>
-                        <input type="text" id="setting-MODEL_CRITERIA" list="model-ids" placeholder="empty = default">
+                        <div class="model-field" data-key="MODEL_CRITERIA">
+                            <select class="model-select hidden" aria-label="Criteria assistant"></select>
+                            <input type="text" id="setting-MODEL_CRITERIA" placeholder="empty = default">
+                            <small class="model-note hidden"></small>
+                        </div>
                         <label class="field-label" for="setting-MODEL_CHAT">Chat</label>
-                        <input type="text" id="setting-MODEL_CHAT" list="model-ids" placeholder="empty = default">
+                        <div class="model-field" data-key="MODEL_CHAT">
+                            <select class="model-select hidden" aria-label="Chat"></select>
+                            <input type="text" id="setting-MODEL_CHAT" placeholder="empty = default">
+                            <small class="model-note hidden"></small>
+                        </div>
                     </div>
-                    <p class="settings-help">Screening is pinned to one concrete model for reproducibility: on OrcaRouter, meta-models such as <code>orcarouter/auto</code> or <code>orcarouter/free</code> are refused for screening (they stay fine for the other tasks).</p>
+                    <p class="settings-help">The list is loaded from the selected provider as soon as its key is saved; pick <em>Other model id…</em> to type an id that is not listed. Screening is pinned to one concrete model for reproducibility: on OrcaRouter, meta-models such as <code>orcarouter/auto</code> or <code>orcarouter/free</code> are refused for screening (they stay fine for the other tasks).</p>
                     <p id="settings-pin-warning" class="screen-model-warning hidden"></p>
                 </section>
 
@@ -693,7 +716,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=28"></script>
+    <script src="/static/js/app.js?v=31"></script>
 </body>
 
 </html>

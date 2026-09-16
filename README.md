@@ -95,7 +95,7 @@ Click **⚙️ Settings** at the bottom of the sidebar (or open `http://127.0.0.
 
 1. **LLM provider**: pick OrcaRouter or Google Gemini (or leave *auto-detect*), paste the API key, press **Test connection**. Keys are stored in the local `.env` file next to the app and are never shown again in the browser.
 2. **Routing** (OrcaRouter only): choose **Free** to run without credits or **Auto** for the best paid model per request. *Free* also fills in a free screening model for you.
-3. **Models**: **Load model list** pulls the ids your key can use into the model fields. The default model serves query building, criteria drafting and chat; the **screening** model must be one concrete model (see [Reproducibility](#-reproducibility-and-audit-trail)).
+3. **Models**: the ids your key can use are loaded automatically into a drop-down per field, and reloaded whenever you switch provider (the dialog jumps to this section and flags any model left over from the other provider, with a one-click reset to the provider defaults). The default model serves query building, criteria drafting and chat; the **screening** model must be one concrete model (see [Reproducibility](#-reproducibility-and-audit-trail)).
 4. **Theme**: dark, light, or follow the system.
 
 Press **Save**. Optional harvester credentials (an e-mail for OpenAlex/Crossref's polite pool, Semantic Scholar, Scopus, IEEE Xplore keys) are in the same dialog and only matter for those databases.
